@@ -254,6 +254,9 @@
   #
   RngLib|Include/Library/RngLib.h
 
+  ##  @libraryclass  Provide services to access I/O Fifo Ports
+  IoFifoLib|Include/Library/IoFifoLib.h
+
 [LibraryClasses.IPF]
   ##  @libraryclass  The SAL Library provides a service to make a SAL CALL.
   SalLib|Include/Library/SalLib.h

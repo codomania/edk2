@@ -13,7 +13,6 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 **/
 
 #include "CpuIo2Dxe.h"
-#include "IoFifo.h"
 
 //
 // Handle for the CPU I/O 2 Protocol

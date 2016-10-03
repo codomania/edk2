@@ -155,6 +155,7 @@
   MdePkg/Library/SmmMemLib/SmmMemLib.inf
   MdePkg/Library/BaseRngLib/BaseRngLib.inf
   MdePkg/Library/SmmPciExpressLib/SmmPciExpressLib.inf
+  MdePkg/Library/BaseIoFifoLib/BaseIoFifoLib.inf
 
 [Components.IPF]
   MdePkg/Library/BaseIoLibIntrinsic/BaseIoLibIntrinsic.inf
