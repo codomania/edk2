@@ -164,7 +164,7 @@
   SmbusLib|MdePkg/Library/BaseSmbusLibNull/BaseSmbusLibNull.inf
   OrderedCollectionLib|MdePkg/Library/BaseOrderedCollectionRedBlackTreeLib/BaseOrderedCollectionRedBlackTreeLib.inf
   XenHypercallLib|OvmfPkg/Library/XenHypercallLib/XenHypercallLib.inf
-  IoFifoLib|MdePkg/Library/BaseIoFifoLib/BaseIoFifoLib.inf
+  IoFifoLib|OvmfPkg/Library/BaseIoFifoLib/BaseIoFifoLib.inf
 
 [LibraryClasses.common]
 !if $(SECURE_BOOT_ENABLE) == TRUE
