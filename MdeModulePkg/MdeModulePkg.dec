@@ -1639,5 +1639,11 @@
   # @ValidList  0x80000001 | 0x0
   gEfiMdeModulePkgTokenSpaceGuid.PcdIdentifyMappingPageTablePtr|0x0|UINT64|0x00030002
 
+  ## This dynamic PCD hold the page table encryption mask when memory encryption
+  #  is enabled on AMD Family 17 processor. This mask should be applied when we
+  #  are creating a 1:1 virtual to physical mapping.
+  #
+  gEfiMdeModulePkgTokenSpaceGuid.PcdPteMemoryEncryptionMask|0x0|UINT64|0x0
+
 [UserExtensions.TianoCore."ExtraFiles"]
   MdeModulePkgExtra.uni

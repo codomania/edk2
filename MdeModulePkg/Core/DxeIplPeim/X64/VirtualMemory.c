@@ -71,14 +71,14 @@ Split2MPageTo4K (
   //
   // Fill in 2M page entry.
   //
-  *PageEntry2M = (UINT64) (UINTN) PageTableEntry | IA32_PG_P | IA32_PG_RW;
+  *PageEntry2M = (UINT64) (UINTN) PageTableEntry | IA32_PG_P | IA32_PG_RW | PcdGet64 (PcdPteMemoryEncryptionMask);
 
   PhysicalAddress4K = PhysicalAddress;
   for (IndexOfPageTableEntries = 0; IndexOfPageTableEntries < 512; IndexOfPageTableEntries++, PageTableEntry++, PhysicalAddress4K += SIZE_4KB) {
     //
     // Fill in the Page Table entries
     //
-    PageTableEntry->Uint64 = (UINT64) PhysicalAddress4K;
+    PageTableEntry->Uint64 = (UINT64) PhysicalAddress4K | PcdGet64 (PcdPteMemoryEncryptionMask);
     PageTableEntry->Bits.ReadWrite = 1;
     PageTableEntry->Bits.Present = 1;
     if ((PhysicalAddress4K >= StackBase) && (PhysicalAddress4K < StackBase + StackSize)) {
@@ -116,7 +116,7 @@ Split1GPageTo2M (
   //
   // Fill in 1G page entry.
   //
-  *PageEntry1G = (UINT64) (UINTN) PageDirectoryEntry | IA32_PG_P | IA32_PG_RW;
+  *PageEntry1G = (UINT64) (UINTN) PageDirectoryEntry | IA32_PG_P | IA32_PG_RW | PcdGet64 (PcdPteMemoryEncryptionMask);
 
   PhysicalAddress2M = PhysicalAddress;
   for (IndexOfPageDirectoryEntries = 0; IndexOfPageDirectoryEntries < 512; IndexOfPageDirectoryEntries++, PageDirectoryEntry++, PhysicalAddress2M += SIZE_2MB) {
@@ -129,7 +129,7 @@ Split1GPageTo2M (
       //
       // Fill in the Page Directory entries
       //
-      PageDirectoryEntry->Uint64 = (UINT64) PhysicalAddress2M;
+      PageDirectoryEntry->Uint64 = (UINT64) PhysicalAddress2M | PcdGet64 (PcdPteMemoryEncryptionMask);
       PageDirectoryEntry->Bits.ReadWrite = 1;
       PageDirectoryEntry->Bits.Present = 1;
       PageDirectoryEntry->Bits.MustBe1 = 1;
@@ -248,7 +248,7 @@ CreateIdentityMappingPageTables (
     //
     // Make a PML4 Entry
     //
-    PageMapLevel4Entry->Uint64 = (UINT64)(UINTN)PageDirectoryPointerEntry;
+    PageMapLevel4Entry->Uint64 = (UINT64)(UINTN)PageDirectoryPointerEntry | PcdGet64 (PcdPteMemoryEncryptionMask);
     PageMapLevel4Entry->Bits.ReadWrite = 1;
     PageMapLevel4Entry->Bits.Present = 1;
 
@@ -262,7 +262,7 @@ CreateIdentityMappingPageTables (
           //
           // Fill in the Page Directory entries
           //
-          PageDirectory1GEntry->Uint64 = (UINT64)PageAddress;
+          PageDirectory1GEntry->Uint64 = (UINT64)PageAddress | PcdGet64 (PcdPteMemoryEncryptionMask);
           PageDirectory1GEntry->Bits.ReadWrite = 1;
           PageDirectory1GEntry->Bits.Present = 1;
           PageDirectory1GEntry->Bits.MustBe1 = 1;
@@ -280,7 +280,7 @@ CreateIdentityMappingPageTables (
         //
         // Fill in a Page Directory Pointer Entries
         //
-        PageDirectoryPointerEntry->Uint64 = (UINT64)(UINTN)PageDirectoryEntry;
+        PageDirectoryPointerEntry->Uint64 = (UINT64)(UINTN)PageDirectoryEntry | PcdGet64 (PcdPteMemoryEncryptionMask);
         PageDirectoryPointerEntry->Bits.ReadWrite = 1;
         PageDirectoryPointerEntry->Bits.Present = 1;
 
@@ -294,7 +294,7 @@ CreateIdentityMappingPageTables (
             //
             // Fill in the Page Directory entries
             //
-            PageDirectoryEntry->Uint64 = (UINT64)PageAddress;
+            PageDirectoryEntry->Uint64 = (UINT64)PageAddress | PcdGet64 (PcdPteMemoryEncryptionMask);
             PageDirectoryEntry->Bits.ReadWrite = 1;
             PageDirectoryEntry->Bits.Present = 1;
             PageDirectoryEntry->Bits.MustBe1 = 1;
