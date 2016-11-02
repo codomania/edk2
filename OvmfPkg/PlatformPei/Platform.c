@@ -41,6 +41,8 @@
 #include "Platform.h"
 #include "Cmos.h"
 
+#define KVM_FEATURE_MEMORY_ENCRYPTION 0x100
+
 EFI_MEMORY_TYPE_INFORMATION mDefaultMemoryTypeInformation[] = {
   { EfiACPIMemoryNVS,       0x004 },
   { EfiACPIReclaimMemory,   0x008 },
@@ -568,6 +570,37 @@ S3Verification (
 
 
 /**
+  Checks if we are booted in SEV-enabled mode and set the memory encytion mask PCD's
+**/
+STATIC
+VOID
+MemorEncrypInitialization (
+  VOID
+  )
+{
+  UINT32 KVMFeatures;
+  UINT64 MemEncryptMask = 0;
+
+  // Check if KVM memory encyption feature is set
+  AsmCpuid(0x40000001, &KVMFeatures, NULL, NULL, NULL);
+  if (KVMFeatures & KVM_FEATURE_MEMORY_ENCRYPTION) {
+    UINT32 EAX, EBX;
+
+     // Check whether SEV is enabled
+     // CPUID Fn8000_001f[EAX] - Bit 0  (SEV is enabled)
+     // CPUID Fn8000_001f[EBX] - Bit 5:0 (memory encryption bit position)
+     AsmCpuid(0x8000001f, &EAX, &EBX, NULL, NULL);
+     if (EAX & 1) {
+       MemEncryptMask = (1UL << (EBX & 0x3f));
+
+       DEBUG ((DEBUG_INFO, "KVM Secure Encrypted Virtualization (SEV) is enabled\n"));
+     }
+  }
+
+  PcdSet64S (PcdPteMemoryEncryptionMask, MemEncryptMask);
+}
+
+/**
   Perform Platform PEI initialization.
 
   @param  FileHandle      Handle of the file being invoked.
@@ -625,6 +658,8 @@ InitializePlatform (
 
   MiscInitialization ();
   InstallFeatureControlCallback ();
+
+  MemorEncrypInitialization ();
 
   return EFI_SUCCESS;
 }

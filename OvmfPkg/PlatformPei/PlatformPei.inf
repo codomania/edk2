@@ -93,6 +93,7 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdSetNxForStack
   gEfiMdeModulePkgTokenSpaceGuid.PcdPropertiesTableEnable
   gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiS3Enable
+  gEfiMdeModulePkgTokenSpaceGuid.PcdPteMemoryEncryptionMask
   gUefiCpuPkgTokenSpaceGuid.PcdCpuLocalApicBaseAddress
   gUefiCpuPkgTokenSpaceGuid.PcdCpuMaxLogicalProcessorNumber
   gUefiCpuPkgTokenSpaceGuid.PcdCpuApStackSize
