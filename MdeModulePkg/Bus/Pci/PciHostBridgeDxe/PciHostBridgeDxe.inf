@@ -42,6 +42,7 @@
   BaseLib
   PciSegmentLib
   PciHostBridgeLib
+  AMDSevLib
 
 [Protocols]
   gEfiMetronomeArchProtocolGuid                   ## CONSUMES

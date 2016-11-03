@@ -169,9 +169,9 @@ SevMapMemoryRange(
   PgTableMask = MemEncryptMask | EFI_PAGE_MASK;
 
   if (Mode == ClearCBit) {
-    DEBUG ((DEBUG_INFO, "MapRangeAs Unencrypted = 0x%Lx+0x%Lx\n", PhysicalAddress, Length));
+    DEBUG ((DEBUG_VERBOSE, "MapRangeAs Unencrypted = 0x%Lx+0x%Lx\n", PhysicalAddress, Length));
   } else {
-    DEBUG ((DEBUG_INFO, "MapRangeAs Encrypted = 0x%Lx+0x%x\n", PhysicalAddress, Length));
+    DEBUG ((DEBUG_VERBOSE, "MapRangeAs Encrypted = 0x%Lx+0x%x\n", PhysicalAddress, Length));
   }
 
   if (FlushCache) {

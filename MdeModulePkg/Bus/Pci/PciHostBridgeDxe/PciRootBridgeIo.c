@@ -17,6 +17,8 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #include "PciRootBridge.h"
 #include "PciHostResource.h"
 
+#include <Library/AMDSevLib.h>
+
 #define NO_MAPPING  (VOID *) (UINTN) -1
 
 //
@@ -1021,6 +1023,101 @@ RootBridgeIoPciWrite (
   return RootBridgeIoPciAccess (This, FALSE, Width, Address, Count, Buffer);
 }
 
+/*
+ Allocate device DMA buffer
+
+ */
+
+STATIC
+EFI_STATUS
+AllocateDeviceDMABuffer (
+  IN     EFI_ALLOCATE_TYPE                          type,
+  IN     PCI_ROOT_BRIDGE_INSTANCE                   *RootBridge,
+  IN     EFI_PCI_ROOT_BRIDGE_IO_PROTOCOL_OPERATION  Operation,
+  IN     EFI_PHYSICAL_ADDRESS                       HostAddress,
+  IN OUT UINTN                                      *NumberOfBytes,
+  OUT    EFI_PHYSICAL_ADDRESS                       *DeviceAddress,
+  OUT    VOID                                       **Mapping
+  )
+{
+  EFI_STATUS                                        Status;
+  MAP_INFO                                          *MapInfo;
+
+  //
+  // Allocate a MAP_INFO structure to remember the mapping when Unmap() is
+  // called later.
+  //
+  MapInfo = AllocatePool (sizeof (MAP_INFO));
+  if (MapInfo == NULL) {
+    *NumberOfBytes = 0;
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  //
+  // Initialize the MAP_INFO structure
+  //
+  MapInfo->Signature         = MAP_INFO_SIGNATURE;
+  MapInfo->Operation         = Operation;
+  MapInfo->NumberOfBytes     = *NumberOfBytes;
+  MapInfo->NumberOfPages     = EFI_SIZE_TO_PAGES (MapInfo->NumberOfBytes);
+  MapInfo->HostAddress       = HostAddress;
+  MapInfo->MappedHostAddress = SIZE_4GB - 1;
+
+  //
+  // Allocate a buffer below 4GB to map the transfer to.
+  //
+  Status = gBS->AllocatePages (
+                  type,
+                  EfiBootServicesData,
+                  MapInfo->NumberOfPages,
+                  &MapInfo->MappedHostAddress
+                  );
+  if (EFI_ERROR (Status)) {
+    FreePool (MapInfo);
+    *NumberOfBytes = 0;
+    return Status;
+  }
+
+  //
+  // On SEV guest, mark pages as unencrypted
+  //
+  if (SevEnabled ()) {
+    SevMapMemoryRange (MapInfo->MappedHostAddress, MapInfo->NumberOfPages * EFI_PAGE_SIZE, ClearCBit, TRUE);
+  }
+
+  //
+  // If this is a read operation from the Bus Master's point of view,
+  // then copy the contents of the real buffer into the mapped buffer
+  // so the Bus Master can read the contents of the real buffer.
+  //
+  if (Operation == EfiPciOperationBusMasterRead ||
+      Operation == EfiPciOperationBusMasterRead64) {
+    CopyMem (
+      (VOID *) (UINTN) MapInfo->MappedHostAddress,
+      (VOID *) (UINTN) MapInfo->HostAddress,
+      MapInfo->NumberOfBytes
+      );
+  }
+
+  InsertTailList (&RootBridge->Maps, &MapInfo->Link);
+
+  //
+  // The DeviceAddress is the address of the maped buffer below 4GB
+  //
+  *DeviceAddress = MapInfo->MappedHostAddress;
+
+  //
+  // Return a pointer to the MAP_INFO structure in Mapping
+  //
+  *Mapping       = MapInfo;
+
+  DEBUG ((DEBUG_VERBOSE, "IoMap MappedHostAddress 0x%Lx HostAddress 0x%Lx Size %d (%d pages) Opcode %d\n",
+        MapInfo->MappedHostAddress, MapInfo->HostAddress, MapInfo->NumberOfBytes, MapInfo->NumberOfPages, MapInfo->Operation));
+
+  return EFI_SUCCESS;
+}
+
+
 /**
   Provides the PCI controller-specific address needed to access
   system memory for DMA.
@@ -1053,10 +1150,9 @@ RootBridgeIoMap (
   OUT    VOID                                       **Mapping
   )
 {
-  EFI_STATUS                                        Status;
+  EFI_STATUS                                        Status = EFI_SUCCESS;
   PCI_ROOT_BRIDGE_INSTANCE                          *RootBridge;
   EFI_PHYSICAL_ADDRESS                              PhysicalAddress;
-  MAP_INFO                                          *MapInfo;
 
   if (HostAddress == NULL || NumberOfBytes == NULL || DeviceAddress == NULL ||
       Mapping == NULL) {
@@ -1092,68 +1188,14 @@ RootBridgeIoMap (
       // if above 4GB, then it is not possible to generate a mapping, so return
       // an error.
       //
+
       return EFI_UNSUPPORTED;
     }
 
     //
-    // Allocate a MAP_INFO structure to remember the mapping when Unmap() is
-    // called later.
+    // Allocate device DMA buffer
     //
-    MapInfo = AllocatePool (sizeof (MAP_INFO));
-    if (MapInfo == NULL) {
-      *NumberOfBytes = 0;
-      return EFI_OUT_OF_RESOURCES;
-    }
-
-    //
-    // Initialize the MAP_INFO structure
-    //
-    MapInfo->Signature         = MAP_INFO_SIGNATURE;
-    MapInfo->Operation         = Operation;
-    MapInfo->NumberOfBytes     = *NumberOfBytes;
-    MapInfo->NumberOfPages     = EFI_SIZE_TO_PAGES (MapInfo->NumberOfBytes);
-    MapInfo->HostAddress       = PhysicalAddress;
-    MapInfo->MappedHostAddress = SIZE_4GB - 1;
-
-    //
-    // Allocate a buffer below 4GB to map the transfer to.
-    //
-    Status = gBS->AllocatePages (
-                    AllocateMaxAddress,
-                    EfiBootServicesData,
-                    MapInfo->NumberOfPages,
-                    &MapInfo->MappedHostAddress
-                    );
-    if (EFI_ERROR (Status)) {
-      FreePool (MapInfo);
-      *NumberOfBytes = 0;
-      return Status;
-    }
-
-    //
-    // If this is a read operation from the Bus Master's point of view,
-    // then copy the contents of the real buffer into the mapped buffer
-    // so the Bus Master can read the contents of the real buffer.
-    //
-    if (Operation == EfiPciOperationBusMasterRead ||
-        Operation == EfiPciOperationBusMasterRead64) {
-      CopyMem (
-        (VOID *) (UINTN) MapInfo->MappedHostAddress,
-        (VOID *) (UINTN) MapInfo->HostAddress,
-        MapInfo->NumberOfBytes
-        );
-    }
-
-    InsertTailList (&RootBridge->Maps, &MapInfo->Link);
-
-    //
-    // The DeviceAddress is the address of the maped buffer below 4GB
-    //
-    *DeviceAddress = MapInfo->MappedHostAddress;
-    //
-    // Return a pointer to the MAP_INFO structure in Mapping
-    //
-    *Mapping       = MapInfo;
+    Status = AllocateDeviceDMABuffer (AllocateMaxAddress, RootBridge, Operation, PhysicalAddress, NumberOfBytes, DeviceAddress, Mapping);
   } else {
     //
     // If the root bridge CAN handle performing DMA above 4GB or
@@ -1162,9 +1204,21 @@ RootBridgeIoMap (
     //
     *DeviceAddress = PhysicalAddress;
     *Mapping       = NO_MAPPING;
+
+    //
+    // On SEV guest, allocate DMA bounce buffer
+    // 
+    if (((Operation == EfiPciOperationBusMasterRead ||
+          Operation == EfiPciOperationBusMasterRead64 ||
+          Operation == EfiPciOperationBusMasterWrite ||
+          Operation == EfiPciOperationBusMasterWrite64)) &&
+          SevEnabled ()) {
+      Status = AllocateDeviceDMABuffer (AllocateAnyPages, RootBridge, Operation, PhysicalAddress, NumberOfBytes, DeviceAddress, Mapping);
+    }
   }
 
-  return EFI_SUCCESS;
+
+  return Status;
 }
 
 /**
@@ -1237,6 +1291,17 @@ RootBridgeIoUnmap (
       );
   }
 
+  //
+  // On SEV guest, pages are marked as unencrypted by IoMap
+  // We need to restore back to encrypted
+  //
+  if (SevEnabled ()) {
+    SevMapMemoryRange (MapInfo->MappedHostAddress, MapInfo->NumberOfPages * EFI_PAGE_SIZE, SetCBit, TRUE);
+  }
+
+
+  DEBUG ((DEBUG_VERBOSE, "IoUnMap MappedHostAddress 0x%Lx HostAddress 0x%Lx Size %d (%d pages) Op %d\n",
+        MapInfo->MappedHostAddress, MapInfo->HostAddress, MapInfo->NumberOfBytes, MapInfo->NumberOfPages, MapInfo->Operation));
   //
   // Free the mapped buffer and the MAP_INFO structure.
   //
@@ -1329,6 +1394,14 @@ RootBridgeIoAllocateBuffer (
                   );
   if (!EFI_ERROR (Status)) {
     *HostAddress = (VOID *) (UINTN) PhysicalAddress;
+
+    //
+    // On SEV guest, mark the memory region as unencrypted
+    //
+    if (SevEnabled()) {
+      SevMapMemoryRange (PhysicalAddress, Pages * EFI_PAGE_SIZE, ClearCBit, TRUE);
+    }
+
   }
 
   return Status;
@@ -1356,6 +1429,14 @@ RootBridgeIoFreeBuffer (
   OUT VOID                             *HostAddress
   )
 {
+  //
+  // On SEV guest, memory was marked unencrypted during allocation.
+  // Restore the memory region back to encrypted after its free'd.
+  //
+  if (SevEnabled()) {
+    SevMapMemoryRange ((EFI_PHYSICAL_ADDRESS) (UINTN) HostAddress, Pages * EFI_PAGE_SIZE, SetCBit, TRUE);
+  }
+
   return gBS->FreePages ((EFI_PHYSICAL_ADDRESS) (UINTN) HostAddress, Pages);
 }
 
