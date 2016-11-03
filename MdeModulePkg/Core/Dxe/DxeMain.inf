@@ -99,6 +99,7 @@
   DebugAgentLib
   CpuExceptionHandlerLib
   PcdLib
+  AMDSevLib
 
 [Guids]
   gEfiEventMemoryMapChangeGuid                  ## PRODUCES             ## Event

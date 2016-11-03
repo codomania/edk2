@@ -17,6 +17,8 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #include "DxeMain.h"
 #include "Gcd.h"
 
+#include <Library/AMDSevLib.h>
+
 #define MINIMUM_INITIAL_MEMORY_SIZE 0x10000
 
 #define MEMORY_ATTRIBUTE_MASK         (EFI_RESOURCE_ATTRIBUTE_PRESENT             | \
@@ -893,6 +895,9 @@ CoreConvertSpace (
       Entry->GcdMemoryType = GcdMemoryType;
       if (GcdMemoryType == EfiGcdMemoryTypeMemoryMappedIo) {
         Entry->Capabilities  = Capabilities | EFI_MEMORY_RUNTIME | EFI_MEMORY_PORT_IO;
+        if (SevEnabled()) {
+          SevMapMemoryRange (BaseAddress, PageAlignAddress (Length), ClearCBit, FALSE);
+        }
       } else {
         Entry->Capabilities  = Capabilities | EFI_MEMORY_RUNTIME;
       }

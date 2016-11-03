@@ -165,6 +165,7 @@
   OrderedCollectionLib|MdePkg/Library/BaseOrderedCollectionRedBlackTreeLib/BaseOrderedCollectionRedBlackTreeLib.inf
   XenHypercallLib|OvmfPkg/Library/XenHypercallLib/XenHypercallLib.inf
   IoFifoLib|OvmfPkg/Library/BaseIoFifoLib/BaseIoFifoLib.inf
+  AMDSevLib|MdePkg/Library/AMDSevLib/AMDSevLib.inf
 
 [LibraryClasses.common]
 !if $(SECURE_BOOT_ENABLE) == TRUE
