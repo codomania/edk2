@@ -49,6 +49,7 @@
   PeCoffLib|MdePkg/Library/BasePeCoffLib/BasePeCoffLib.inf
   PeCoffGetEntryPointLib|MdePkg/Library/BasePeCoffGetEntryPointLib/BasePeCoffGetEntryPointLib.inf
   SortLib|MdeModulePkg/Library/BaseSortLib/BaseSortLib.inf
+  BmDmaLib|MdeModulePkg/Library/DxeBmDmaLib/DxeBmDmaLib.inf
   #
   # UEFI & PI
   #
