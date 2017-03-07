@@ -45,6 +45,7 @@
   IoLib.c
   Ia32/IoFifo.nasm
   Ia32/IoFifo.asm
+  Ia32/SevIoFifo.nasm
 
 [Sources.X64]
   IoLibGcc.c    | GCC
@@ -53,6 +54,7 @@
   IoLib.c
   X64/IoFifo.nasm
   X64/IoFifo.asm
+  X64/SevIoFifo.nasm
 
 [Sources.EBC]
   IoLibEbc.c

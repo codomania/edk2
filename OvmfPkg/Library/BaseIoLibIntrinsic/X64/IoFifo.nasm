@@ -13,6 +13,10 @@
 ;
 ;------------------------------------------------------------------------------
 
+    EXTERN ASM_PFX(SevIoReadFifo8)
+    EXTERN ASM_PFX(SevIoReadFifo16)
+    EXTERN ASM_PFX(SevIoReadFifo32)
+
     DEFAULT REL
     SECTION .text
 
@@ -30,7 +34,12 @@ ASM_PFX(IoReadFifo8):
     cld
     xchg    rcx, rdx
     xchg    rdi, r8             ; rdi: buffer address; r8: save rdi
+    call    SevIoReadFifo8
+    cmp     ecx, 0
+    jz      IoReadFifo8Exit
 rep insb
+
+IoReadFifo8Exit:
     mov     rdi, r8             ; restore rdi
     ret
 
@@ -48,7 +57,12 @@ ASM_PFX(IoReadFifo16):
     cld
     xchg    rcx, rdx
     xchg    rdi, r8             ; rdi: buffer address; r8: save rdi
+    call    SevIoReadFifo16
+    cmp     ecx, 0
+    jz      IoReadFifo16Exit
 rep insw
+
+IoReadFifo16Exit:
     mov     rdi, r8             ; restore rdi
     ret
 
@@ -66,7 +80,12 @@ ASM_PFX(IoReadFifo32):
     cld
     xchg    rcx, rdx
     xchg    rdi, r8             ; rdi: buffer address; r8: save rdi
+    call    SevIoReadFifo32
+    cmp     ecx, 0
+    jz      IoReadFifo32Exit
 rep insd
+
+IoReadFifo32Exit:
     mov     rdi, r8             ; restore rdi
     ret
 

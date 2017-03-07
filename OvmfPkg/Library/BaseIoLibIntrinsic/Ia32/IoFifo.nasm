@@ -13,6 +13,10 @@
 ;
 ;------------------------------------------------------------------------------
 
+    EXTERN ASM_PFX(SevIoReadFifo8)
+    EXTERN ASM_PFX(SevIoReadFifo16)
+    EXTERN ASM_PFX(SevIoReadFifo32)
+
     SECTION .text
 
 ;------------------------------------------------------------------------------
@@ -31,7 +35,12 @@ ASM_PFX(IoReadFifo8):
     mov     dx, [esp + 8]
     mov     ecx, [esp + 12]
     mov     edi, [esp + 16]
+    call    SevIoReadFifo8
+    cmp     ecx, 0
+    jz      IoReadFifo8Exit
 rep insb
+
+IoReadFifo8Exit:
     pop     edi
     ret
 
@@ -51,7 +60,12 @@ ASM_PFX(IoReadFifo16):
     mov     dx, [esp + 8]
     mov     ecx, [esp + 12]
     mov     edi, [esp + 16]
+    call    SevIoReadFifo16
+    cmp     ecx, 0
+    jz      IoReadFifo16Exit
 rep insw
+
+IoReadFifo16Exit:
     pop     edi
     ret
 
@@ -71,7 +85,12 @@ ASM_PFX(IoReadFifo32):
     mov     dx, [esp + 8]
     mov     ecx, [esp + 12]
     mov     edi, [esp + 16]
+    call    SevIoReadFifo32
+    cmp     ecx, 0
+    jz      IoReadFifo32Exit
 rep insd
+
+IoReadFifo32Exit:
     pop     edi
     ret
 
