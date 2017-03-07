@@ -33,6 +33,7 @@
 #include <Library/PeiServicesLib.h>
 #include <Library/QemuFwCfgLib.h>
 #include <Library/ResourcePublicationLib.h>
+#include <Library/MemcryptSevLib.h>
 #include <Guid/MemoryTypeInformation.h>
 #include <Ppi/MasterBootMode.h>
 #include <IndustryStandard/Pci22.h>
@@ -665,6 +666,11 @@ InitializePlatform (
     MemMapInitialization ();
     NoexecDxeInitialization ();
   }
+
+  //
+  // Initialize SEV support
+  //
+  MemcryptSevInitialize ();
 
   MiscInitialization ();
   InstallFeatureControlCallback ();

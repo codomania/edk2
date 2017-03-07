@@ -60,6 +60,7 @@
   QemuFwCfgLib
   MtrrLib
   PcdLib
+  MemcryptSevLib
 
 [Pcd]
   gUefiOvmfPkgTokenSpaceGuid.PcdOvmfPeiMemFvBase
