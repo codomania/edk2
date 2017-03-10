@@ -16,6 +16,60 @@
     SECTION .text
 
 ;------------------------------------------------------------------------------
+; Check whether we need to unroll the String I/O under SEV guest
+;
+; Return // eax   (1 - unroll, 0 - no unroll)
+;------------------------------------------------------------------------------
+global ASM_PFX(SevNoRepIo)
+ASM_PFX(SevNoRepIo):
+
+  ; CPUID clobbers ebx, ecx and edx
+  push      ebx
+  push      ecx
+  push      edx
+
+  ; Check if we are running under hypervisor
+  ; CPUID(1).ECX Bit 31
+  mov       eax, 1
+  cpuid
+  bt        ecx, 31
+  jnc       @UseRepIo
+
+  ; Check if we have Memory encryption CPUID leaf
+  mov       eax, 0x80000000
+  cpuid
+  cmp       eax, 0x8000001f
+  jl        @UseRepIo
+
+  ; Check for memory encryption feature:
+  ;  CPUID  Fn8000_001F[EAX] - Bit 1
+  ;
+  mov       eax,  0x8000001f
+  cpuid
+  bt        eax, 1
+  jnc       @UseRepIo
+
+  ; Check if memory encryption is enabled
+  ;  MSR_0xC0010131 - Bit 0 (SEV enabled)
+  ;  MSR_0xC0010131 - Bit 1 (SEV-ES enabled)
+  mov       ecx, 0xc0010131
+  rdmsr
+
+  ; Check for (SevEsEnabled == 0 && SevEnabled == 1)
+  and       eax, 3
+  cmp       eax, 1
+  je        @SevNoRepIo_Done
+
+@UseRepIo:
+  xor       eax, eax
+
+@SevNoRepIo_Done:
+  pop       edx
+  pop       ecx
+  pop       ebx
+  ret
+
+;------------------------------------------------------------------------------
 ;  VOID
 ;  EFIAPI
 ;  IoReadFifo8 (
@@ -27,11 +81,28 @@
 global ASM_PFX(IoReadFifo8)
 ASM_PFX(IoReadFifo8):
     push    edi
-    cld
     mov     dx, [esp + 8]
     mov     ecx, [esp + 12]
     mov     edi, [esp + 16]
-rep insb
+
+    call    SevNoRepIo            ; Check if we need to unroll the rep
+    test    eax, eax
+    jnz     @IoReadFifo8_NoRep
+
+    cld
+    rep     insb
+    jmp     @IoReadFifo8_Done
+
+@IoReadFifo8_NoRep:
+    jecxz   @IoReadFifo8_Done
+
+@IoReadFifo8_Loop:
+    in      al, dx
+    mov     byte [edi], al
+    inc     edi
+    loop    @IoReadFifo8_Loop
+
+@IoReadFifo8_Done:
     pop     edi
     ret
 
@@ -47,11 +118,28 @@ rep insb
 global ASM_PFX(IoReadFifo16)
 ASM_PFX(IoReadFifo16):
     push    edi
-    cld
     mov     dx, [esp + 8]
     mov     ecx, [esp + 12]
     mov     edi, [esp + 16]
-rep insw
+
+    call    SevNoRepIo            ; Check if we need to unroll the rep
+    test    eax, eax
+    jnz     @IoReadFifo16_NoRep
+
+    cld
+    rep     insw
+    jmp     @IoReadFifo16_Done
+
+@IoReadFifo16_NoRep:
+    jecxz   @IoReadFifo16_Done
+
+@IoReadFifo16_Loop:
+    in      ax, dx
+    mov     word [edi], ax
+    add     edi, 2
+    loop    @IoReadFifo16_Loop
+
+@IoReadFifo16_Done:
     pop     edi
     ret
 
@@ -67,11 +155,28 @@ rep insw
 global ASM_PFX(IoReadFifo32)
 ASM_PFX(IoReadFifo32):
     push    edi
-    cld
     mov     dx, [esp + 8]
     mov     ecx, [esp + 12]
     mov     edi, [esp + 16]
-rep insd
+
+    call    SevNoRepIo            ; Check if we need to unroll the rep
+    test    eax, eax
+    jnz     @IoReadFifo32_NoRep
+
+    cld
+    rep     insd
+    jmp     @IoReadFifo32_Done
+
+@IoReadFifo32_NoRep:
+    jecxz   @IoReadFifo32_Done
+
+@IoReadFifo32_Loop:
+    in      eax, dx
+    mov     dword [edi], eax
+    add     edi, 4
+    loop    @IoReadFifo32_Loop
+
+@IoReadFifo32_Done:
     pop     edi
     ret
 
@@ -87,11 +192,28 @@ rep insd
 global ASM_PFX(IoWriteFifo8)
 ASM_PFX(IoWriteFifo8):
     push    esi
-    cld
     mov     dx, [esp + 8]
     mov     ecx, [esp + 12]
     mov     esi, [esp + 16]
-rep outsb
+
+    call    SevNoRepIo     	; Check if we need to unroll String I/O
+    test    eax, eax
+    jnz     @IoWriteFifo8_NoRep
+
+    cld
+    rep     outsb
+    jmp     @IoWriteFifo8_Done
+
+@IoWriteFifo8_NoRep:
+    jecxz   @IoWriteFifo8_Done
+
+@IoWriteFifo8_Loop:
+    mov     byte [esi], al
+    out     dx, al
+    inc     esi
+    loop    @IoWriteFifo8_Loop
+
+@IoWriteFifo8_Done:
     pop     esi
     ret
 
@@ -107,11 +229,28 @@ rep outsb
 global ASM_PFX(IoWriteFifo16)
 ASM_PFX(IoWriteFifo16):
     push    esi
-    cld
     mov     dx, [esp + 8]
     mov     ecx, [esp + 12]
     mov     esi, [esp + 16]
-rep outsw
+
+    call    SevNoRepIo     	; Check if we need to unroll String I/O
+    test    eax, eax
+    jnz     @IoWriteFifo16_NoRep
+
+    cld
+    rep     outsw
+    jmp     @IoWriteFifo16_Done
+
+@IoWriteFifo16_NoRep:
+    jecxz   @IoWriteFifo16_Done
+
+@IoWriteFifo16_Loop:
+    mov     word [esi], ax
+    out     dx, ax
+    add     esi, 2
+    loop    @IoWriteFifo16_Loop
+
+@IoWriteFifo16_Done:
     pop     esi
     ret
 
@@ -127,11 +266,28 @@ rep outsw
 global ASM_PFX(IoWriteFifo32)
 ASM_PFX(IoWriteFifo32):
     push    esi
-    cld
     mov     dx, [esp + 8]
     mov     ecx, [esp + 12]
     mov     esi, [esp + 16]
-rep outsd
+
+    call    SevNoRepIo     	; Check if we need to unroll String I/O
+    test    eax, eax
+    jnz     @IoWriteFifo32_NoRep
+
+    cld
+    rep     outsd
+    jmp     @IoWriteFifo32_Done
+
+@IoWriteFifo32_NoRep:
+    jecxz   @IoWriteFifo32_Done
+
+@IoWriteFifo32_Loop:
+    mov     dword [esi], eax
+    out     dx, eax
+    add     esi, 4
+    loop    @IoWriteFifo32_Loop
+
+@IoWriteFifo32_Done:
     pop     esi
     ret
 
