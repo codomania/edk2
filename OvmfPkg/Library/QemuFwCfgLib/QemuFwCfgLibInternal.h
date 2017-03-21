@@ -2,6 +2,7 @@
   Internal interfaces specific to the QemuFwCfgLib instances in OvmfPkg.
 
   Copyright (C) 2016, Red Hat, Inc.
+  Copyright (C) 2017, Advanced Micro Devices.
 
   This program and the accompanying materials are licensed and made available
   under the terms and conditions of the BSD License which accompanies this
@@ -41,6 +42,43 @@ InternalQemuFwCfgIsAvailable (
 BOOLEAN
 InternalQemuFwCfgDmaIsAvailable (
   VOID
+  );
+
+/**
+ Returns a boolean indicating whether the SEV is enabled
+
+ @retval    TRUE    SEV is enabled
+ @retval    FALSE   SEV is not enabled
+**/
+BOOLEAN
+InternalQemuFwCfgSevIsEnabled (
+  VOID
+  );
+
+/**
+ Allocate a bounce buffer for SEV DMA.
+
+  @param[in]     NumPage  Number of pages.
+  @param[out]    Buffer   Allocated DMA Buffer pointer
+
+**/
+VOID
+InternalQemuFwCfgSevDmaAllocateBuffer (
+  IN     UINT32   NumPages,
+  OUT    VOID     **Buffer
+  );
+
+/**
+ Free the DMA buffer allocated using InternalQemuFwCfgSevDmaAllocateBuffer
+
+  @param[in]     NumPage  Number of pages.
+  @param[in]     Buffer   DMA Buffer pointer
+
+**/
+VOID
+InternalQemuFwCfgSevDmaFreeBuffer (
+  IN     VOID     *Buffer,
+  IN     UINT32   NumPages
   );
 
 #endif

@@ -16,8 +16,11 @@
   WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 **/
 
+#include <Library/BaseLib.h>
 #include <Library/DebugLib.h>
 #include <Library/QemuFwCfgLib.h>
+#include <Register/Cpuid.h>
+#include <Register/AmdSevMap.h>
 
 #include "QemuFwCfgLibInternal.h"
 
@@ -93,4 +96,83 @@ InternalQemuFwCfgDmaIsAvailable (
   )
 {
   return FALSE;
+}
+
+/**
+ Returns a boolean indicating whether the SEV is enabled
+
+ @retval    TRUE    SEV is enabled
+ @retval    FALSE   SEV is not enabled
+**/
+BOOLEAN
+InternalQemuFwCfgSevIsEnabled (
+  VOID
+  )
+{
+  UINT32 RegEax;
+  MSR_SEV_STATUS_REGISTER Msr;
+  CPUID_MEMORY_ENCRYPTION_INFO_EAX  Eax;
+
+  //
+  // Check if memory encryption leaf exist
+  //
+  AsmCpuid (CPUID_EXTENDED_FUNCTION, &RegEax, NULL, NULL, NULL);
+  if (RegEax >= CPUID_MEMORY_ENCRYPTION_INFO) {
+    //
+    // CPUID Fn8000_001F[EAX] Bit 1 (Sev supported)
+    //
+    AsmCpuid (CPUID_MEMORY_ENCRYPTION_INFO, &Eax.Uint32, NULL, NULL, NULL);
+
+    if (Eax.Bits.SevBit) {
+      //
+      // Check MSR_0xC0010131 Bit 0 (Sev Enabled)
+      //
+      Msr.Uint32 = AsmReadMsr32 (MSR_SEV_STATUS);
+      if (Msr.Bits.SevBit) {
+        return TRUE;
+      }
+    }
+  }
+
+  return FALSE;
+}
+
+/**
+ Allocate a bounce buffer for SEV DMA.
+
+  @param[in]     NumPage  Number of pages.
+  @param[out]    Buffer   Allocated DMA Buffer pointer
+
+**/
+VOID
+InternalQemuFwCfgSevDmaAllocateBuffer (
+  IN     UINT32   NumPages,
+  OUT    VOID     **Buffer
+  )
+{
+  //
+  // We should never reach here
+  //
+  ASSERT (FALSE);
+  CpuDeadLoop ();
+}
+
+/**
+ Free the DMA buffer allocated using InternalQemuFwCfgSevDmaAllocateBuffer
+
+  @param[in]     NumPage  Number of pages.
+  @param[in]     Buffer   DMA Buffer pointer
+
+**/
+VOID
+InternalQemuFwCfgSevDmaFreeBuffer (
+  IN     VOID     *Buffer,
+  IN     UINT32   NumPages
+  )
+{
+  //
+  // We should never reach here
+  //
+  ASSERT (FALSE);
+  CpuDeadLoop ();
 }

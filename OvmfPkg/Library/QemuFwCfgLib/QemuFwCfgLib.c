@@ -47,6 +47,111 @@ QemuFwCfgSelectItem (
 
 
 /**
+  Transfer an array of bytes, or skip a number of bytes, using the SEV DMA bounce
+  interface. The function is same as InternalQemuFwCfgDmaBytes with excpetion that
+  it uses bounce buffer
+
+  @param[in]     Size     Size in bytes to transfer or skip.
+
+  @param[in,out] HostBuffer Buffer to read data into or write data from. Ignored,
+                            and may be NULL, if Size is zero, or Control is
+                            FW_CFG_DMA_CTL_SKIP.
+
+  @param[in]     Control  One of the following:
+                          FW_CFG_DMA_CTL_WRITE - write to fw_cfg from Buffer.
+                          FW_CFG_DMA_CTL_READ  - read from fw_cfg into Buffer.
+                          FW_CFG_DMA_CTL_SKIP  - skip bytes in fw_cfg.
+**/
+VOID
+InternalQemuFwCfgSevDmaBytes (
+  IN     UINT32   Size,
+  IN OUT VOID     *HostBuffer OPTIONAL,
+  IN     UINT32   Control
+  )
+{
+  volatile FW_CFG_DMA_ACCESS *Access;
+  UINT32                     AccessHigh, AccessLow;
+  UINT32                     Status;
+  UINT32                     NumPages;
+  VOID                       *DmaBuffer, *Buffer;
+
+  //
+  // Calculate number of pages we need to allocate for this operation
+  //
+  if (Control == FW_CFG_DMA_CTL_SKIP) {
+    //
+    // Control data does not need the actual buffer
+    //
+    NumPages = EFI_SIZE_TO_PAGES (sizeof (*Access));
+  } else {
+    NumPages = EFI_SIZE_TO_PAGES (sizeof (*Access) + Size);
+  }
+
+  //
+  // Allocate DMA bounce buffer
+  //
+  InternalQemuFwCfgSevDmaAllocateBuffer (NumPages, &DmaBuffer);
+
+  Access = (FW_CFG_DMA_ACCESS *)DmaBuffer;
+  Buffer = DmaBuffer + sizeof(*Access);
+
+  Access->Control = SwapBytes32 (Control);
+  Access->Length  = SwapBytes32 (Size);
+  Access->Address = SwapBytes64 ((UINTN)Buffer);
+
+  //
+  // Copy data from Host buffer into DMA buffer
+  //
+  if (HostBuffer && (Control == FW_CFG_DMA_CTL_WRITE)) {
+    CopyMem (Buffer, HostBuffer, Size);
+  }
+
+  //
+  // Delimit the transfer from (a) modifications to Access, (b) in case of a
+  // write, from writes to Buffer by the caller.
+  //
+  MemoryFence ();
+
+  //
+  // Start the transfer.
+  //
+  AccessHigh = (UINT32)RShiftU64 ((UINTN)Access, 32);
+  AccessLow  = (UINT32)(UINTN)Access;
+  IoWrite32 (FW_CFG_IO_DMA_ADDRESS,     SwapBytes32 (AccessHigh));
+  IoWrite32 (FW_CFG_IO_DMA_ADDRESS + 4, SwapBytes32 (AccessLow));
+
+  //
+  // Don't look at Access->Control before starting the transfer.
+  //
+  MemoryFence ();
+
+  //
+  // Wait for the transfer to complete.
+  //
+  do {
+    Status = SwapBytes32 (Access->Control);
+    ASSERT ((Status & FW_CFG_DMA_CTL_ERROR) == 0);
+  } while (Status != 0);
+
+  //
+  // After a read, the caller will want to use Buffer.
+  //
+  MemoryFence ();
+
+  //
+  // Copy data from DMA buffer into Host Buffer
+  //
+  if (HostBuffer && (Control == FW_CFG_DMA_CTL_READ)) {
+    CopyMem (HostBuffer, Buffer, Size);
+  }
+
+  //
+  // Free the DMA bounce buffer
+  //
+  InternalQemuFwCfgSevDmaFreeBuffer (DmaBuffer, NumPages);
+}
+
+/**
   Transfer an array of bytes, or skip a number of bytes, using the DMA
   interface.
 
@@ -77,6 +182,13 @@ InternalQemuFwCfgDmaBytes (
 
   if (Size == 0) {
     return;
+  }
+
+  //
+  // When SEV is enabled then use SEV version of DmaReadWrite
+  //
+  if (InternalQemuFwCfgSevIsEnabled ()) {
+    return InternalQemuFwCfgSevDmaBytes (Size, Buffer, Control);
   }
 
   Access.Control = SwapBytes32 (Control);

@@ -4,6 +4,7 @@
 
   Copyright (C) 2013, Red Hat, Inc.
   Copyright (c) 2011 - 2013, Intel Corporation. All rights reserved.<BR>
+  Copyright (c) 2017, Advanced Micro Devices. All rights reserved.<BR>
 
   This program and the accompanying materials are licensed and made available
   under the terms and conditions of the BSD License which accompanies this
@@ -14,14 +15,34 @@
   WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 **/
 
+#include "Uefi.h"
+
+#include <Library/BaseLib.h>
 #include <Library/DebugLib.h>
 #include <Library/QemuFwCfgLib.h>
+#include <Library/UefiBootServicesTableLib.h>
+#include <Library/MemEncryptSevLib.h>
+#include <Library/BmDmaLib.h>
 
 #include "QemuFwCfgLibInternal.h"
 
 STATIC BOOLEAN mQemuFwCfgSupported = FALSE;
 STATIC BOOLEAN mQemuFwCfgDmaSupported;
+STATIC BOOLEAN mQemuFwCfgSevIsEnabled = FALSE;
 
+/**
+ Returns a boolean indicating whether the SEV is enabled
+
+ @retval    TRUE    SEV is enabled
+ @retval    FALSE   SEV is not enabled
+**/
+BOOLEAN
+InternalQemuFwCfgSevIsEnabled (
+  VOID
+  )
+{
+  return mQemuFwCfgSevIsEnabled;
+}
 
 /**
   Returns a boolean indicating if the firmware configuration interface
@@ -79,6 +100,9 @@ QemuFwCfgInitialize (
     mQemuFwCfgDmaSupported = TRUE;
     DEBUG ((DEBUG_INFO, "QemuFwCfg interface (DMA) is supported.\n"));
   }
+
+  mQemuFwCfgSevIsEnabled = MemEncryptSevIsEnabled ();
+
   return RETURN_SUCCESS;
 }
 
@@ -114,3 +138,52 @@ InternalQemuFwCfgDmaIsAvailable (
 {
   return mQemuFwCfgDmaSupported;
 }
+
+/**
+ Allocate a bounce buffer for SEV DMA.
+
+  @param[in]     NumPage  Number of pages.
+  @param[out]    Buffer   Allocated DMA Buffer pointer
+
+**/
+VOID
+InternalQemuFwCfgSevDmaAllocateBuffer (
+  IN     UINT32   NumPages,
+  OUT    VOID     **Buffer
+  )
+{
+  EFI_STATUS  Status;
+
+  //
+  // Allocate DMA bounce buffer
+  //
+  Status = BmDmaAllocateBuffer (TRUE, EfiBootServicesData, NumPages, Buffer);
+  if (EFI_ERROR(Status)) {
+    DEBUG ((EFI_D_ERROR, "SEV: Failed to allocate bounce buffer %d pages\n", NumPages));
+    ASSERT_EFI_ERROR (Status);
+    CpuDeadLoop ();
+  }
+
+  DEBUG ((EFI_D_VERBOSE, "QemuFwCfgSevDma allocate buffer 0x%Lx Pages %d\n", (UINTN)Buffer, NumPages));
+}
+
+/**
+ Free the DMA buffer allocated using InternalQemuFwCfgSevDmaAllocateBuffer
+
+  @param[in]     NumPage  Number of pages.
+  @param[in]     Buffer   DMA Buffer pointer
+
+**/
+VOID
+InternalQemuFwCfgSevDmaFreeBuffer (
+  IN     VOID     *Buffer,
+  IN     UINT32   NumPages
+  )
+{
+  //
+  // Free the bounce buffer
+  //
+  DEBUG ((EFI_D_VERBOSE, "QemuFwCfgSevDma free buffer 0x%Lx Pages %d\n", (UINTN)Buffer, NumPages));
+  BmDmaFreeBuffer (Buffer, NumPages);
+}
+
