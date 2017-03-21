@@ -192,8 +192,8 @@ BmDmaMap (
   }
 
   return AllocateBounceBuffer ( 
-           Operation,
            FORCE_BELOW_4GB_TRUE,   
+           Operation,
            PhysicalAddress,
            NumberOfBytes,
            DeviceAddress,
