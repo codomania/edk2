@@ -60,6 +60,7 @@
   UefiBootServicesTableLib
   UefiDriverEntryPoint
   UefiLib
+  MemEncryptSevLib
 
 [Protocols]
   gEfiDriverSupportedEfiVersionProtocolGuid     # PROTOCOL ALWAYS_PRODUCED

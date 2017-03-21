@@ -13,6 +13,8 @@
 
 **/
 
+#include <Library/MemEncryptSevLib.h>
+
 #include "Qemu.h"
 
 STATIC
@@ -64,6 +66,19 @@ QemuVideoCompleteModeData (
                         NULL,
                         (VOID**) &FrameBufDesc
                         );
+
+  //
+  // Framebuffer memory region is shared between hypervisor and guest,
+  // Clear the memory encryption mask when SEV is active.
+  //
+  if (MemEncryptSevIsEnabled ()) {
+    EFI_STATUS Status;
+
+    Status = MemEncryptSevClearPageEncMask (FrameBufDesc->AddrRangeMin, EFI_SIZE_TO_PAGES (FrameBufDesc->AddrLen));
+    if (EFI_ERROR(Status)) {
+      DEBUG ((EFI_D_WARN, "Failed to clear memory encryption mask 0x%#Lx+0x%x\n", FrameBufDesc->AddrRangeMin, FrameBufDesc->AddrLen));
+    }
+  }
 
   Mode->FrameBufferBase = FrameBufDesc->AddrRangeMin;
   Mode->FrameBufferSize = Info->HorizontalResolution * Info->VerticalResolution;
