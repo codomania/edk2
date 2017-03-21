@@ -35,6 +35,7 @@
   MemDetect.c
   Platform.c
   Xen.c
+  AmdSev.c
 
 [Packages]
   IntelFrameworkModulePkg/IntelFrameworkModulePkg.dec
@@ -98,6 +99,7 @@
   gUefiCpuPkgTokenSpaceGuid.PcdCpuMaxLogicalProcessorNumber
   gUefiCpuPkgTokenSpaceGuid.PcdCpuApInitTimeOutInMicroSeconds
   gUefiCpuPkgTokenSpaceGuid.PcdCpuApStackSize
+  gEfiMdeModulePkgTokenSpaceGuid.PcdPteMemoryEncryptionAddressOrMask
 
 [FixedPcd]
   gEfiMdePkgTokenSpaceGuid.PcdPciExpressBaseAddress
