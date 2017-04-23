@@ -43,4 +43,40 @@ InternalQemuFwCfgDmaIsAvailable (
   VOID
   );
 
+/**
+ Returns a boolean indicating whether SEV support is enabled
+
+ @retval    TRUE    SEV is enabled
+ @retval    FALSE   SEV is disabled
+**/
+BOOLEAN
+InternalQemuFwCfgSevIsEnabled (
+  VOID
+  );
+
+/**
+ Allocate a bounce buffer for SEV DMA.
+
+  @param[in]     NumPage  Number of pages.
+  @param[out]    Buffer   Allocated DMA Buffer pointer
+
+**/
+VOID
+InternalQemuFwCfgSevDmaAllocateBuffer (
+  IN     UINT32   NumPages,
+  OUT    VOID     **Buffer
+  );
+
+/**
+ Free the DMA buffer allocated using InternalQemuFwCfgSevDmaAllocateBuffer
+
+  @param[in]     NumPage  Number of pages.
+  @param[in]     Buffer   DMA Buffer pointer
+
+**/
+VOID
+InternalQemuFwCfgSevDmaFreeBuffer (
+  IN     VOID     *Buffer,
+  IN     UINT32   NumPages
+  );
 #endif
