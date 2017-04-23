@@ -96,7 +96,7 @@
   UefiHiiServicesLib|MdeModulePkg/Library/UefiHiiServicesLib/UefiHiiServicesLib.inf
   HiiLib|MdeModulePkg/Library/UefiHiiLib/UefiHiiLib.inf
   SortLib|MdeModulePkg/Library/UefiSortLib/UefiSortLib.inf
-  BmDmaLib|MdeModulePkg/Library/DxeBmDmaLib/DxeBmDmaLib.inf
+  BmDmaLib|OvmfPkg/Library/DxeBmDmaLib/DxeBmDmaLib.inf
   UefiBootManagerLib|MdeModulePkg/Library/UefiBootManagerLib/UefiBootManagerLib.inf
   BootLogoLib|MdeModulePkg/Library/BootLogoLib/BootLogoLib.inf
   FileExplorerLib|MdeModulePkg/Library/FileExplorerLib/FileExplorerLib.inf
