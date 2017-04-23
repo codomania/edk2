@@ -25,6 +25,7 @@
 #include <Library/MemoryAllocationLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/BmDmaLib.h>
+#include <Library/MemEncryptSevLib.h>
 
 
 #define FORCE_BELOW_4GB_TRUE   TRUE
@@ -100,6 +101,15 @@ AllocateBounceBuffer (
   }
 
   //
+  // Clear C-bit on DMA pages
+  //
+  if (MemEncryptSevIsEnabled ()) {
+    Status = MemEncryptSevClearPageEncMask (MapInfo->MappedHostAddress, MapInfo->NumberOfPages, TRUE);
+    if (Status != EFI_SUCCESS) {
+      return Status;
+    }
+  }
+  //
   // If this is a read operation from the Bus Master's point of view,
   // then copy the contents of the real buffer into the mapped buffer
   // so the Bus Master can read the contents of the real buffer.
@@ -170,6 +180,23 @@ BmDmaMap (
 
   PhysicalAddress = (EFI_PHYSICAL_ADDRESS) (UINTN) HostAddress;
   if (DmaAbove4GB || (PhysicalAddress + *NumberOfBytes) <= SIZE_4GB) {
+
+    //
+    // When SEV is enabled the DMA operation must be performed on shared pages. We force to use the
+    // bounce buffer path which will take care of allocating shared Dma buffers mapping
+    //
+    if (MemEncryptSevIsEnabled () &&
+        (Operation == DmaOperationBusMasterRead || Operation == DmaOperationBusMasterWrite)) {
+      return AllocateBounceBuffer (
+                                   FORCE_BELOW_4GB_FALSE,
+                                   Operation,
+                                   PhysicalAddress,
+                                   NumberOfBytes,
+                                   DeviceAddress,
+                                   Mapping
+                                   );
+    }
+
     //
     // If we CAN handle DMA above 4GB or the transfer is below 4GB,
     // the DeviceAddress is simply the HostAddress
@@ -218,7 +245,8 @@ BmDmaUnmap (
   IN  VOID                 *Mapping
   )
 {
-  MAP_INFO  *MapInfo;
+  MAP_INFO           *MapInfo;
+  EFI_STATUS         Status;
 
   //
   // Check for invalid inputs
@@ -248,6 +276,17 @@ BmDmaUnmap (
       (VOID *) (UINTN) MapInfo->MappedHostAddress,
       MapInfo->NumberOfBytes
       );
+  }
+
+  //
+  // When SEV is enabled then Dma buffer allocate by bounce buffer have C-bit cleared,
+  // restore the C-bit before we release the resources
+  //
+  if (MemEncryptSevIsEnabled ()) {
+    Status = MemEncryptSevSetPageEncMask (MapInfo->MappedHostAddress, MapInfo->NumberOfPages, TRUE);
+    if (Status != EFI_SUCCESS) {
+      return Status;
+    }
   }
 
   //
@@ -322,7 +361,14 @@ BmDmaAllocateBuffer (
                   );
   if (!EFI_ERROR (Status)) {
     *HostAddress = (VOID *) (UINTN) PhysicalAddress;
+    //
+    // Clear C-bit on Dma pages
+    //
+    if (MemEncryptSevIsEnabled ()) {
+      Status = MemEncryptSevClearPageEncMask (PhysicalAddress, Pages, TRUE);
+    }
   }
+
 
   return Status;
 }
@@ -346,6 +392,18 @@ BmDmaFreeBuffer (
   IN  UINTN                Pages
   )
 {
+  EFI_STATUS           Status;
+
+  //
+  // Restore the C-bit on DMA pages
+  //
+  if (MemEncryptSevIsEnabled ()) {
+    Status = MemEncryptSevSetPageEncMask ((UINTN) HostAddress, Pages, TRUE);
+    if (Status != EFI_SUCCESS) {
+      return Status;
+    }
+  }
+
   return gBS->FreePages ((EFI_PHYSICAL_ADDRESS) (UINTN) HostAddress, Pages);
 }
 
