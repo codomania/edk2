@@ -44,6 +44,7 @@
 [LibraryClasses]
   BaseLib
   BaseMemoryLib
+  BmDmaLib
   DebugLib
   IoLib
   MemoryAllocationLib
