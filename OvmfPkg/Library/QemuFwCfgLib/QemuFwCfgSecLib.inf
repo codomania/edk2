@@ -45,4 +45,5 @@
   DebugLib
   IoLib
   MemoryAllocationLib
+  MemEncryptSevLib
 
