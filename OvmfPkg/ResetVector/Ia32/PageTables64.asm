@@ -37,9 +37,60 @@ BITS    32
                        PAGE_READ_WRITE + \
                        PAGE_PRESENT)
 
+; Check if Secure Encrypted Virtualization (SEV) feature is enabled
+;
+; If SEV is enabled then EAX will be at least 32
+; If SEV is disabled then EAX will be zero.
+;
+CheckSevFeature:
+    ; CPUID will clobber EBX, ECX, EDX, save these registers
+    push  ebx
+    push  ecx
+    push  edx
+
+    ; Check if we have a valid (0x8000_001F) CPUID leaf
+    mov       eax, 0x80000000
+    cpuid
+
+    ; This check should fail on Intel or Non SEV AMD CPUs and in future if
+    ; Intel CPUs supports this CPUID leaf then we are guranteed to have exact
+    ; same bit definition.
+    cmp       eax, 0x8000001f
+    jl        NoSev
+
+    ; Check for memory encryption feature:
+    ;  CPUID  Fn8000_001F[EAX] - Bit 1
+    ;
+    mov       eax,  0x8000001f
+    cpuid
+    bt        eax, 1
+    jnc       NoSev
+
+    ; Check if memory encryption is enabled
+    ;  MSR_0xC0010131 - Bit 0 (SEV enabled)
+    mov       ecx, 0xc0010131
+    rdmsr
+    bt        eax, 0
+    jnc       NoSev
+
+    ; Get pte bit position to enable memory encryption
+    ; CPUID Fn8000_001F[EBX] - Bits 5:0
+    ;
+    mov       eax, ebx
+    and       eax, 0x3f
+    jmp       SevExit
+
+NoSev:
+    xor       eax, eax
+
+SevExit:
+    pop       edx
+    pop       ecx
+    pop       ebx
+    OneTimeCallRet CheckSevFeature
 
 ;
-; Modified:  EAX, ECX
+; Modified:  EAX, ECX, EDX
 ;
 SetCr3ForPageTables64:
 
@@ -60,18 +111,34 @@ clearPageTablesMemoryLoop:
     mov     dword[ecx * 4 + PT_ADDR (0) - 4], eax
     loop    clearPageTablesMemoryLoop
 
+    OneTimeCall   CheckSevFeature
+    xor     edx, edx
+    test    eax, eax
+    jz      SevNotActive
+
+    ; If SEV is enabled, Memory encryption bit is always above 31
+    sub     eax, 32
+    bts     edx, eax
+
+SevNotActive:
+
     ;
     ; Top level Page Directory Pointers (1 * 512GB entry)
     ;
     mov     dword[PT_ADDR (0)], PT_ADDR (0x1000) + PAGE_PDP_ATTR
+    mov     dword[PT_ADDR (4)], edx
 
     ;
     ; Next level Page Directory Pointers (4 * 1GB entries => 4GB)
     ;
     mov     dword[PT_ADDR (0x1000)], PT_ADDR (0x2000) + PAGE_PDP_ATTR
+    mov     dword[PT_ADDR (0x1004)], edx
     mov     dword[PT_ADDR (0x1008)], PT_ADDR (0x3000) + PAGE_PDP_ATTR
+    mov     dword[PT_ADDR (0x100C)], edx
     mov     dword[PT_ADDR (0x1010)], PT_ADDR (0x4000) + PAGE_PDP_ATTR
+    mov     dword[PT_ADDR (0x1014)], edx
     mov     dword[PT_ADDR (0x1018)], PT_ADDR (0x5000) + PAGE_PDP_ATTR
+    mov     dword[PT_ADDR (0x101C)], edx
 
     ;
     ; Page Table Entries (2048 * 2MB entries => 4GB)
@@ -83,6 +150,7 @@ pageTableEntriesLoop:
     shl     eax, 21
     add     eax, PAGE_2M_PDE_ATTR
     mov     [ecx * 8 + PT_ADDR (0x2000 - 8)], eax
+    mov     [(ecx * 8 + PT_ADDR (0x2000 - 8)) + 4], edx
     loop    pageTableEntriesLoop
 
     ;
