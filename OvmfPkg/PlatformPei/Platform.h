@@ -88,6 +88,11 @@ XenDetect (
   VOID
   );
 
+VOID
+AmdSevInitialize (
+  VOID
+  );
+
 extern BOOLEAN mXen;
 
 VOID
