@@ -298,6 +298,11 @@ DxeMain (
   ASSERT_EFI_ERROR (Status);
 
   //
+  // Call Platform hooks for Gcd
+  //
+  DxeGcdCorePlatformHookReady (&mDxeServices);
+
+  //
   // Call constructor for all libraries
   //
   ProcessLibraryConstructorList (gDxeCoreImageHandle, gDxeCoreST);

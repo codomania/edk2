@@ -167,6 +167,8 @@
   ##
   NonDiscoverableDeviceRegistrationLib|Include/Library/NonDiscoverableDeviceRegistrationLib.h
 
+  DxeGcdCorePlatformHookLib|Include/Library/DxeGcdCorePlatformHookLib.h
+
 [Guids]
   ## MdeModule package token space guid
   # Include/Guid/MdeModulePkgTokenSpace.h
