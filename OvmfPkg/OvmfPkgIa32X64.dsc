@@ -283,7 +283,7 @@
 !endif
   CpuExceptionHandlerLib|UefiCpuPkg/Library/CpuExceptionHandlerLib/DxeCpuExceptionHandlerLib.inf
   PcdLib|MdePkg/Library/DxePcdLib/DxePcdLib.inf
-  DxeGcdCorePlatformHookLib|MdeModulePkg/Library/DxeGcdCorePlatformHookLib/DxeGcdCorePlatformHookLibNull.inf
+  DxeGcdCorePlatformHookLib|OvmfPkg/Library/DxeGcdCorePlatformHookLib/DxeGcdCorePlatformHookLib.inf
 
 [LibraryClasses.common.DXE_RUNTIME_DRIVER]
   PcdLib|MdePkg/Library/DxePcdLib/DxePcdLib.inf
