@@ -84,6 +84,7 @@ InternalQemuFwCfgDmaBytes (
 
   //
   // set NumPages to suppress incorrect compiler/analyzer warnigns
+  // set NumPages to suppress incorrect compiler/analyzer warnings
   //
   NumPages = 0;
 
