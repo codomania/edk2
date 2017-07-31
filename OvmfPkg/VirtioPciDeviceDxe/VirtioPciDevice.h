@@ -156,4 +156,37 @@ VirtioPciSetDeviceStatus (
   UINT8                          DeviceStatus
   );
 
+EFI_STATUS
+EFIAPI
+VirtioPciAllocateSharedPages (
+  VIRTIO_DEVICE_PROTOCOL        *This,
+  UINTN                         NumPages,
+  VOID                          **HostAddress
+  );
+
+VOID
+EFIAPI
+VirtioPciFreeSharedPages (
+  VIRTIO_DEVICE_PROTOCOL        *This,
+  UINTN                         NumPages,
+  VOID                          *HostAddress
+  );
+
+EFI_STATUS
+EFIAPI
+VirtioPciMapSharedBuffer (
+  VIRTIO_DEVICE_PROTOCOL        *This,
+  VIRTIO_MAP_OPERATION          Operation,
+  VOID                          *HostAddress,
+  UINTN                         *NumberOfBytes,
+  EFI_PHYSICAL_ADDRESS          *DeviceAddress,
+  VOID                          **Mapping
+  );
+
+EFI_STATUS
+EFIAPI
+VirtioPciUnmapSharedBuffer (
+  VIRTIO_DEVICE_PROTOCOL        *This,
+  VOID                          *Mapping
+  );
 #endif // _VIRTIO_PCI_DEVICE_DXE_H_

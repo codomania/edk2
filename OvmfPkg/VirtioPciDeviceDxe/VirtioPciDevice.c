@@ -40,7 +40,11 @@ STATIC VIRTIO_DEVICE_PROTOCOL mDeviceProtocolTemplate = {
   VirtioPciGetDeviceStatus,             // GetDeviceStatus
   VirtioPciSetDeviceStatus,             // SetDeviceStatus
   VirtioPciDeviceWrite,                 // WriteDevice
-  VirtioPciDeviceRead                   // ReadDevice
+  VirtioPciDeviceRead,                  // ReadDevice
+  VirtioPciAllocateSharedPages,         // AllocateSharedPages
+  VirtioPciFreeSharedPages,             // FreeSharedPages
+  VirtioPciMapSharedBuffer,             // MapSharedBuffer
+  VirtioPciUnmapSharedBuffer,           // UnmapSharedBuffer
 };
 
 /**

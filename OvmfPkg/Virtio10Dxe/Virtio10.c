@@ -772,6 +772,113 @@ Virtio10ReadDevice (
   return Status;
 }
 
+STATIC
+EFI_STATUS
+EFIAPI
+Virtio10AllocateSharedPages (
+  IN     VIRTIO_DEVICE_PROTOCOL  *This,
+  IN     UINTN                   Pages,
+  IN OUT VOID                    **HostAddress
+  )
+{
+  VIRTIO_1_0_DEV *Dev;
+  EFI_STATUS     Status;
+
+  Dev = VIRTIO_1_0_FROM_VIRTIO_DEVICE (This);
+
+  Status = Dev->PciIo->AllocateBuffer (
+                         Dev->PciIo,
+                         AllocateAnyPages,
+                         EfiBootServicesData,
+                         Pages,
+                         HostAddress,
+                         0
+                         );
+  return Status;
+}
+
+STATIC
+VOID
+EFIAPI
+Virtio10FreeSharedPages (
+  IN  VIRTIO_DEVICE_PROTOCOL  *This,
+  IN  UINTN                   Pages,
+  IN  VOID                    *HostAddress
+  )
+{
+  VIRTIO_1_0_DEV *Dev;
+
+  Dev = VIRTIO_1_0_FROM_VIRTIO_DEVICE (This);
+
+  Dev->PciIo->FreeBuffer (
+                Dev->PciIo,
+                Pages,
+                HostAddress
+                );
+}
+
+STATIC
+EFI_STATUS
+EFIAPI
+Virtio10MapSharedBuffer (
+  IN     VIRTIO_DEVICE_PROTOCOL  *This,
+  IN     VIRTIO_MAP_OPERATION    Operation,
+  IN     VOID                    *HostAddress,
+  IN OUT UINTN                   *NumberOfBytes,
+  OUT    EFI_PHYSICAL_ADDRESS    *DeviceAddress,
+  OUT    VOID                    **Mapping
+  )
+{
+  EFI_STATUS                    Status;
+  VIRTIO_1_0_DEV                *Dev;
+  EFI_PCI_IO_PROTOCOL_OPERATION PciIoOperation;
+
+  Dev = VIRTIO_1_0_FROM_VIRTIO_DEVICE (This);
+
+  //
+  // Map VIRTIO_MAP_OPERATION to EFI_PCI_IO_PROTOCOL_OPERATION
+  //
+  if (Operation == EfiVirtIoOperationBusMasterRead) {
+    PciIoOperation = EfiPciIoOperationBusMasterRead;
+  } else if (Operation == EfiVirtIoOperationBusMasterWrite) {
+    PciIoOperation = EfiPciIoOperationBusMasterWrite;
+  } else if (Operation == EfiVirtIoOperationBusMasterCommonBuffer) {
+    PciIoOperation = EfiPciIoOperationBusMasterCommonBuffer;
+  } else {
+    return EFI_UNSUPPORTED;
+  }
+
+  Status = Dev->PciIo->Map (
+                         Dev->PciIo,
+                         PciIoOperation,
+                         HostAddress,
+                         NumberOfBytes,
+                         DeviceAddress,
+                         Mapping
+                         );
+  return Status;
+}
+
+STATIC
+EFI_STATUS
+EFIAPI
+Virtio10UnmapSharedBuffer (
+  IN  VIRTIO_DEVICE_PROTOCOL  *This,
+  IN  VOID                    *Mapping
+  )
+{
+  EFI_STATUS      Status;
+  VIRTIO_1_0_DEV  *Dev;
+
+  Dev = VIRTIO_1_0_FROM_VIRTIO_DEVICE (This);
+
+  Status = Dev->PciIo->Unmap (
+                         Dev->PciIo,
+                         Mapping
+                         );
+
+  return Status;
+}
 
 STATIC CONST VIRTIO_DEVICE_PROTOCOL mVirtIoTemplate = {
   VIRTIO_SPEC_REVISION (1, 0, 0),
@@ -788,7 +895,11 @@ STATIC CONST VIRTIO_DEVICE_PROTOCOL mVirtIoTemplate = {
   Virtio10GetDeviceStatus,
   Virtio10SetDeviceStatus,
   Virtio10WriteDevice,
-  Virtio10ReadDevice
+  Virtio10ReadDevice,
+  Virtio10AllocateSharedPages,
+  Virtio10FreeSharedPages,
+  Virtio10MapSharedBuffer,
+  Virtio10UnmapSharedBuffer
 };
 
 
