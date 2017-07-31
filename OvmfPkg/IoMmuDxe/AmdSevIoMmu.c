@@ -382,6 +382,12 @@ IoMmuUnmap (
   ASSERT_EFI_ERROR(Status);
 
   //
+  // Zero the shared memory so that hypervisor no longer able to get intelligentable
+  // data.
+  //
+  SetMem ((VOID *) (UINTN)MapInfo->DeviceAddress, MapInfo->NumberOfBytes, 0);
+
+  //
   // Free the bounce buffer
   //
   gBS->FreePages (MapInfo->DeviceAddress, MapInfo->NumberOfPages);
