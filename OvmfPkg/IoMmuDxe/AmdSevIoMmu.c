@@ -333,12 +333,6 @@ IoMmuAllocateBuffer (
                   );
   if (!EFI_ERROR (Status)) {
     *HostAddress = (VOID *) (UINTN) PhysicalAddress;
-
-    //
-    // Clear memory encryption mask
-    //
-    Status = MemEncryptSevClearPageEncMask (0, PhysicalAddress, Pages, TRUE);
-    ASSERT_EFI_ERROR(Status);
   }
 
   DEBUG ((DEBUG_VERBOSE, "%a Address 0x%Lx Pages 0x%Lx\n", __FUNCTION__, PhysicalAddress, Pages));
@@ -365,14 +359,6 @@ IoMmuFreeBuffer (
   IN  VOID                                     *HostAddress
   )
 {
-  EFI_STATUS  Status;
-
-  //
-  // Set memory encryption mask
-  //
-  Status = MemEncryptSevSetPageEncMask (0, (EFI_PHYSICAL_ADDRESS)(UINTN)HostAddress, Pages, TRUE);
-  ASSERT_EFI_ERROR(Status);
-
   DEBUG ((DEBUG_VERBOSE, "%a Address 0x%Lx Pages 0x%Lx\n", __FUNCTION__, (UINTN)HostAddress, Pages));
   return gBS->FreePages ((EFI_PHYSICAL_ADDRESS) (UINTN) HostAddress, Pages);
 }
