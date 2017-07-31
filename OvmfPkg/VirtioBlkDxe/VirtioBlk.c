@@ -76,6 +76,53 @@
                                                 (Pointer)                  \
                                                 ))
 
+/**
+
+  Convenience macros to map and unmap the host address to a shared device DMA
+  address.
+
+  @param[in]    Dev             Pointer to the VBLK_DEV structure whose VirtIo
+                                instance will be used for mapping/unmapping.
+                                Dev->VirtIo must be valid.
+
+  @param[in]    HostAddress     The system memory address to map to shared buffer
+                                address.
+
+  @param[out]   Size            On input the number of bytes to map. On output the
+                                number of bytes that were mapped.
+
+  @param[out]   DeviceAddress   The resulting shared map address for the bus master to
+                                access the hosts HostAddress.
+
+  @param[out]   Mapping         A resulting value to pass to Unmap().
+
+  @return  Status code returned by Virtio->MapSharedBuffer() /
+           Virtio->UnmapSharedBuffer().
+**/
+
+#define MAP_SHARED_BUFFER(Dev, Operation, Host, Size, Device, Mapping)       \
+                                            ((Dev)->VirtIo->MapSharedBuffer (\
+                                                (Dev)->VirtIo,               \
+                                                Operation,                   \
+                                                Host,                        \
+                                                Size,                        \
+                                                Device,                      \
+                                                Mapping                      \
+                                                ))
+
+#define VIRTIO_SHARED_UNMAP_BUFFER(Dev, Mapping)                             \
+                                          ((Dev)->VirtIo->UnmapSharedBuffer (\
+                                             (Dev)->VirtIo,                  \
+                                             Mapping                         \
+                                             ))
+
+#define VIRTIO_SHARED_MAP_READ(Dev, Host, Size, Device, Mapping)             \
+          MAP_SHARED_BUFFER(Dev, EfiVirtIoOperationBusMasterRead,            \
+            Host, Size, Device, Mapping)
+
+#define VIRTIO_SHARED_MAP_WRITE(Dev, Host, Size, Device, Mapping)            \
+          MAP_SHARED_BUFFER(Dev, EfiVirtIoOperationBusMasterWrite,           \
+            Host, Size, Device, Mapping)
 
 //
 // UEFI Spec 2.3.1 + Errata C, 12.8 EFI Block I/O Protocol
@@ -249,7 +296,14 @@ SynchronousRequest (
   UINT32                  BlockSize;
   volatile VIRTIO_BLK_REQ Request;
   volatile UINT8          HostStatus;
+  UINT8                   *HostStatusDevicePtr;
   DESC_INDICES            Indices;
+  VOID                    *RequestMapping;
+  VOID                    *StatusMapping;
+  VOID                    *BufferMapping;
+  EFI_PHYSICAL_ADDRESS    DeviceAddress;
+  EFI_STATUS              Status;
+  UINTN                   NumBytes;
 
   BlockSize = Dev->BlockIoMedia.BlockSize;
 
@@ -288,9 +342,19 @@ SynchronousRequest (
   ASSERT (Dev->Ring.QueueSize >= 3);
 
   //
+  // Map virtio-blk request header
+  //
+  NumBytes = sizeof (Request);
+  Status = VIRTIO_SHARED_MAP_READ(Dev, (VOID *)&Request, &NumBytes,
+             &DeviceAddress, &RequestMapping);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  //
   // virtio-blk header in first desc
   //
-  VirtioAppendDesc (&Dev->Ring, (UINTN) &Request, sizeof Request,
+  VirtioAppendDesc (&Dev->Ring, (UINTN) DeviceAddress, sizeof Request,
     VRING_DESC_F_NEXT, &Indices);
 
   //
@@ -308,17 +372,48 @@ SynchronousRequest (
     ASSERT (BufferSize <= SIZE_1GB);
 
     //
+    // Map data buffer
+    //
+    NumBytes = BufferSize;
+    if (RequestIsWrite) {
+      Status = VIRTIO_SHARED_MAP_READ (Dev, (VOID *)Buffer, &NumBytes,
+                 &DeviceAddress, &BufferMapping);
+    } else {
+      Status = VIRTIO_SHARED_MAP_WRITE (Dev, (VOID *)Buffer, &NumBytes,
+                 &DeviceAddress, &BufferMapping);
+    }
+    if (EFI_ERROR (Status)) {
+      goto Unmap_Response;
+    }
+
+    //
     // VRING_DESC_F_WRITE is interpreted from the host's point of view.
     //
-    VirtioAppendDesc (&Dev->Ring, (UINTN) Buffer, (UINT32) BufferSize,
+    VirtioAppendDesc (&Dev->Ring, (UINTN) DeviceAddress, (UINT32) BufferSize,
       VRING_DESC_F_NEXT | (RequestIsWrite ? 0 : VRING_DESC_F_WRITE),
       &Indices);
+  } else {
+    //
+    // We don't have data buffer
+    //
+    BufferMapping = NULL;
   }
+
+  //
+  // Map virtio-blk status header
+  //
+  NumBytes = sizeof (HostStatus);
+  Status = VIRTIO_SHARED_MAP_WRITE(Dev, (VOID *)&HostStatus, &NumBytes,
+             &DeviceAddress, &StatusMapping);
+  if (EFI_ERROR (Status)) {
+    goto Unmap_Request;
+  }
+  HostStatusDevicePtr = (VOID *)DeviceAddress;
 
   //
   // host status in last (second or third) desc
   //
-  VirtioAppendDesc (&Dev->Ring, (UINTN) &HostStatus, sizeof HostStatus,
+  VirtioAppendDesc (&Dev->Ring, (UINTN) DeviceAddress, sizeof HostStatus,
     VRING_DESC_F_WRITE, &Indices);
 
   //
@@ -326,11 +421,24 @@ SynchronousRequest (
   //
   if (VirtioFlush (Dev->VirtIo, 0, &Dev->Ring, &Indices,
         NULL) == EFI_SUCCESS &&
-      HostStatus == VIRTIO_BLK_S_OK) {
-    return EFI_SUCCESS;
+      *HostStatusDevicePtr == VIRTIO_BLK_S_OK) {
+    Status = EFI_SUCCESS;
+    goto Unmap_Response;
   }
 
-  return EFI_DEVICE_ERROR;
+  Status = EFI_DEVICE_ERROR;
+
+Unmap_Response:
+  VIRTIO_SHARED_UNMAP_BUFFER (Dev, StatusMapping);
+
+  if (BufferMapping) {
+    VIRTIO_SHARED_UNMAP_BUFFER (Dev, BufferMapping);
+  }
+
+Unmap_Request:
+  VIRTIO_SHARED_UNMAP_BUFFER (Dev, RequestMapping);
+
+  return Status;
 }
 
 
