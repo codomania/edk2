@@ -60,8 +60,10 @@ VirtioRingInit (
   OUT VRING                  *Ring
   )
 {
-  UINTN          RingSize;
-  volatile UINT8 *RingPagesPtr;
+  EFI_STATUS            Status;
+  UINTN                 RingSize;
+  volatile UINT8        *RingPagesPtr;
+  EFI_PHYSICAL_ADDRESS  PhysicalAddress;
 
   RingSize = ALIGN_VALUE (
                sizeof *Ring->Desc            * QueueSize +
@@ -78,11 +80,25 @@ VirtioRingInit (
                 sizeof *Ring->Used.AvailEvent,
                 EFI_PAGE_SIZE);
 
+  //
+  // Allocate a shared ring buffer
+  //
   Ring->NumPages = EFI_SIZE_TO_PAGES (RingSize);
-  Ring->Base = AllocatePages (Ring->NumPages);
-  if (Ring->Base == NULL) {
+  Status = VirtIo->AllocateSharedPages (VirtIo, Ring->NumPages, &Ring->Base);
+  if (EFI_ERROR (Status)) {
     return EFI_OUT_OF_RESOURCES;
   }
+
+  //
+  // Ring buffer is bi-directional, map it using BusMasterCommonBuffer
+  //
+  Status = VirtIo->MapSharedBuffer (VirtIo, EfiVirtIoOperationBusMasterCommonBuffer,
+                     Ring->Base, &RingSize, &PhysicalAddress, &Ring->Mapping);
+  if (EFI_ERROR (Status)) {
+    VirtIo->FreeSharedPages (VirtIo, Ring->NumPages, Ring->Base);
+    return Status;
+  }
+
   SetMem (Ring->Base, RingSize, 0x00);
   RingPagesPtr = Ring->Base;
 
@@ -142,7 +158,8 @@ VirtioRingUninit (
   IN OUT VRING                  *Ring
   )
 {
-  FreePages (Ring->Base, Ring->NumPages);
+  VirtIo->UnmapSharedBuffer (VirtIo, Ring->Mapping);
+  VirtIo->FreeSharedPages (VirtIo, Ring->NumPages, Ring->Base);
   SetMem (Ring, sizeof *Ring, 0x00);
 }
 

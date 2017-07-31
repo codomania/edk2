@@ -150,6 +150,7 @@ typedef struct {
 typedef struct {
   UINTN               NumPages;
   VOID                *Base;     // deallocate only this field
+  VOID                *Mapping;
   volatile VRING_DESC *Desc;     // QueueSize elements
   VRING_AVAIL         Avail;
   VRING_USED          Used;
