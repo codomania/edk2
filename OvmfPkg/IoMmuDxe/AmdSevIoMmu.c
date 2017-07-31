@@ -28,7 +28,123 @@ typedef struct {
   EFI_PHYSICAL_ADDRESS                      DeviceAddress;
 } MAP_INFO;
 
-#define NO_MAPPING             (VOID *) (UINTN) -1
+/**
+
+  The function is used for mapping and unmapping the Host buffer with
+  BusMasterCommonBuffer. Since the buffer can be accessed equally by the
+  processor and the DMA bus master hence we can not use the bounce buffer.
+
+  The function changes the underlying encryption mask of the pages that maps the
+  host buffer. It also ensures that buffer contents are updated with the desired
+  state.
+
+**/
+STATIC
+EFI_STATUS
+SetBufferAsEncDec (
+  IN MAP_INFO *MapInfo,
+  IN BOOLEAN  Enc
+  )
+{
+  EFI_STATUS            Status;
+  EFI_PHYSICAL_ADDRESS  TempBuffer;
+
+  //
+  // Allocate an intermediate buffer to hold the host buffer contents
+  //
+  Status = gBS->AllocatePages (
+                  AllocateAnyPages,
+                  EfiBootServicesData,
+                  MapInfo->NumberOfPages,
+                  &TempBuffer
+                  );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  //
+  // If the host buffer has C-bit cleared, then make sure the intermediate
+  // buffer matches with same encryption mask.
+  //
+  if (!Enc) {
+    Status = MemEncryptSevClearPageEncMask (0, TempBuffer, MapInfo->NumberOfPages, TRUE);
+    ASSERT_EFI_ERROR (Status);
+  }
+
+  //
+  // Copy the data from host buffer into a temporary buffer. At this
+  // time both host and intermediate buffer will have same encryption
+  // mask.
+  //
+  CopyMem (
+    (VOID *) (UINTN) TempBuffer,
+    (VOID *) (UINTN) MapInfo->HostAddress,
+    MapInfo->NumberOfBytes);
+
+  //
+  // Now change the encryption mask of the host buffer
+  //
+  if (Enc) {
+    Status = MemEncryptSevSetPageEncMask (0, MapInfo->HostAddress,
+               MapInfo->NumberOfPages, TRUE);
+    ASSERT_EFI_ERROR (Status);
+  } else {
+    Status = MemEncryptSevClearPageEncMask (0, MapInfo->HostAddress,
+               MapInfo->NumberOfPages, TRUE);
+    ASSERT_EFI_ERROR (Status);
+  }
+
+  //
+  // Copy the data from intermediate buffer into host buffer. At this
+  // time encryption masks will be different on host and intermediate
+  // buffer and the hardware will perform encryption/decryption on
+  // accesses.
+  //
+  CopyMem (
+    (VOID *) (UINTN)MapInfo->HostAddress,
+    (VOID *) (UINTN)TempBuffer,
+    MapInfo->NumberOfBytes);
+
+  //
+  // Restore the encryption mask of the intermediate buffer
+  //
+  Status = MemEncryptSevSetPageEncMask (0, TempBuffer, MapInfo->NumberOfPages, TRUE);
+  ASSERT_EFI_ERROR (Status);
+
+  //
+  // Free the intermediate buffer
+  //
+  gBS->FreePages (TempBuffer, MapInfo->NumberOfPages);
+  return EFI_SUCCESS;
+}
+
+/**
+  This function will be called by Map() when mapping the buffer buffer to
+  BusMasterCommonBuffer type.
+
+**/
+STATIC
+EFI_STATUS
+SetHostBufferAsEncrypted (
+  IN MAP_INFO *MapInfo
+  )
+{
+  return SetBufferAsEncDec (MapInfo, TRUE);
+}
+
+/**
+  This function will be called by Unmap() when unmapping host buffer
+  from the BusMasterCommonBuffer type.
+
+**/
+STATIC
+EFI_STATUS
+SetHostBufferAsDecrypted (
+  IN MAP_INFO *MapInfo
+  )
+{
+  return SetBufferAsEncDec (MapInfo, FALSE);
+}
 
 /**
   Provides the controller-specific addresses required to access system memory from a
@@ -113,18 +229,6 @@ IoMmuMap (
   }
 
   //
-  // CommandBuffer was allocated by us (AllocateBuffer) and is already in
-  // unencryted buffer so no need to create bounce buffer
-  //
-  if (Operation == EdkiiIoMmuOperationBusMasterCommonBuffer ||
-      Operation == EdkiiIoMmuOperationBusMasterCommonBuffer64) {
-    *Mapping = NO_MAPPING;
-    *DeviceAddress = PhysicalAddress;
-
-    return EFI_SUCCESS;
-  }
-
-  //
   // Allocate a MAP_INFO structure to remember the mapping when Unmap() is
   // called later.
   //
@@ -142,6 +246,25 @@ IoMmuMap (
   MapInfo->NumberOfPages     = EFI_SIZE_TO_PAGES (MapInfo->NumberOfBytes);
   MapInfo->HostAddress       = PhysicalAddress;
   MapInfo->DeviceAddress     = DmaMemoryTop;
+
+  //
+  // If the requested Map() operation is BusMasterCommandBuffer then map
+  // using internal function otherwise allocate a bounce buffer to map
+  // the host buffer to device buffer
+  //
+  if (Operation == EdkiiIoMmuOperationBusMasterCommonBuffer ||
+      Operation == EdkiiIoMmuOperationBusMasterCommonBuffer64) {
+
+    Status = SetHostBufferAsDecrypted (MapInfo);
+    if (EFI_ERROR (Status)) {
+      FreePool (MapInfo);
+      *NumberOfBytes = 0;
+      return Status;
+    }
+
+    MapInfo->DeviceAddress = MapInfo->HostAddress;
+    goto Done;
+  }
 
   //
   // Allocate a buffer to map the transfer to.
@@ -178,6 +301,7 @@ IoMmuMap (
       );
   }
 
+Done:
   //
   // The DeviceAddress is the address of the maped buffer below 4GB
   //
@@ -219,16 +343,23 @@ IoMmuUnmap (
     return EFI_INVALID_PARAMETER;
   }
 
-  //
-  // See if the Map() operation associated with this Unmap() required a mapping
-  // buffer. If a mapping buffer was not required, then this function simply
-  // buffer. If a mapping buffer was not required, then this function simply
-  //
-  if (Mapping == NO_MAPPING) {
-    return EFI_SUCCESS;
-  }
-
   MapInfo = (MAP_INFO *)Mapping;
+
+  //
+  // If this is a CommonBuffer operation from the Bus Master's point of
+  // view then Map() have cleared the memory encryption mask from Host
+  // buffer. Lets restore the memory encryption mask before returning
+  //
+  if (MapInfo->Operation == EdkiiIoMmuOperationBusMasterCommonBuffer ||
+      MapInfo->Operation == EdkiiIoMmuOperationBusMasterCommonBuffer64) {
+
+    Status = SetHostBufferAsEncrypted (MapInfo);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+
+    goto Done;
+  }
 
   //
   // If this is a write operation from the Bus Master's point of view,
@@ -244,9 +375,6 @@ IoMmuUnmap (
       );
   }
 
-  DEBUG ((DEBUG_VERBOSE, "%a Device 0x%Lx Host 0x%Lx Pages 0x%Lx Bytes 0x%Lx\n",
-        __FUNCTION__, MapInfo->DeviceAddress, MapInfo->HostAddress,
-        MapInfo->NumberOfPages, MapInfo->NumberOfBytes));
   //
   // Restore the memory encryption mask
   //
@@ -254,9 +382,15 @@ IoMmuUnmap (
   ASSERT_EFI_ERROR(Status);
 
   //
-  // Free the mapped buffer and the MAP_INFO structure.
+  // Free the bounce buffer
   //
   gBS->FreePages (MapInfo->DeviceAddress, MapInfo->NumberOfPages);
+
+Done:
+  DEBUG ((DEBUG_VERBOSE, "%a Device 0x%Lx Host 0x%Lx Pages 0x%Lx Bytes 0x%Lx\n",
+        __FUNCTION__, MapInfo->DeviceAddress, MapInfo->HostAddress,
+        MapInfo->NumberOfPages, MapInfo->NumberOfBytes));
+
   FreePool (Mapping);
   return EFI_SUCCESS;
 }
