@@ -127,7 +127,7 @@ VirtioGpuInit (
   //
   // [...] population of virtqueues [...]
   //
-  Status = VirtioRingInit (QueueSize, &VgpuDev->Ring);
+  Status = VirtioRingInit (VgpuDev->VirtIo, QueueSize, &VgpuDev->Ring);
   if (EFI_ERROR (Status)) {
     goto Failed;
   }
@@ -148,7 +148,7 @@ VirtioGpuInit (
   return EFI_SUCCESS;
 
 ReleaseQueue:
-  VirtioRingUninit (&VgpuDev->Ring);
+  VirtioRingUninit (VgpuDev->VirtIo, &VgpuDev->Ring);
 
 Failed:
   //
@@ -183,7 +183,7 @@ VirtioGpuUninit (
   // configuration.
   //
   VgpuDev->VirtIo->SetDeviceStatus (VgpuDev->VirtIo, 0);
-  VirtioRingUninit (&VgpuDev->Ring);
+  VirtioRingUninit (VgpuDev->VirtIo, &VgpuDev->Ring);
 }
 
 /**

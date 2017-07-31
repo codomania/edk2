@@ -73,7 +73,7 @@ VirtioNetInitRing (
   if (QueueSize < 2) {
     return EFI_UNSUPPORTED;
   }
-  Status = VirtioRingInit (QueueSize, Ring);
+  Status = VirtioRingInit (Dev->VirtIo, QueueSize, Ring);
   if (EFI_ERROR (Status)) {
     return Status;
   }
@@ -103,7 +103,7 @@ VirtioNetInitRing (
   return EFI_SUCCESS;
 
 ReleaseQueue:
-  VirtioRingUninit (Ring);
+  VirtioRingUninit (Dev->VirtIo, Ring);
 
   return Status;
 }
@@ -509,10 +509,10 @@ AbortDevice:
   Dev->VirtIo->SetDeviceStatus (Dev->VirtIo, 0);
 
 ReleaseTxRing:
-  VirtioRingUninit (&Dev->TxRing);
+  VirtioRingUninit (Dev->VirtIo, &Dev->TxRing);
 
 ReleaseRxRing:
-  VirtioRingUninit (&Dev->RxRing);
+  VirtioRingUninit (Dev->VirtIo, &Dev->RxRing);
 
 DeviceFailed:
   //

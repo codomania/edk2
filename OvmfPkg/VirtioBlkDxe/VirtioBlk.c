@@ -722,7 +722,7 @@ VirtioBlkInit (
     goto Failed;
   }
 
-  Status = VirtioRingInit (QueueSize, &Dev->Ring);
+  Status = VirtioRingInit (Dev->VirtIo, QueueSize, &Dev->Ring);
   if (EFI_ERROR (Status)) {
     goto Failed;
   }
@@ -811,7 +811,7 @@ VirtioBlkInit (
   return EFI_SUCCESS;
 
 ReleaseQueue:
-  VirtioRingUninit (&Dev->Ring);
+  VirtioRingUninit (Dev->VirtIo, &Dev->Ring);
 
 Failed:
   //
@@ -848,7 +848,7 @@ VirtioBlkUninit (
   //
   Dev->VirtIo->SetDeviceStatus (Dev->VirtIo, 0);
 
-  VirtioRingUninit (&Dev->Ring);
+  VirtioRingUninit (Dev->VirtIo, &Dev->Ring);
 
   SetMem (&Dev->BlockIo,      sizeof Dev->BlockIo,      0x00);
   SetMem (&Dev->BlockIoMedia, sizeof Dev->BlockIoMedia, 0x00);
