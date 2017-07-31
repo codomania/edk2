@@ -48,6 +48,17 @@
 
 #include "VirtioScsi.h"
 
+typedef struct {
+  VOID  *InDataBuffer;
+  VOID  *InDataBufferMapping;
+  VOID  *OutDataBuffer;
+  VOID  *OutDataBufferMapping;
+  VOID  *SenseData;
+  VOID  *SenseDataMapping;
+  VOID  *Cdb;
+  VOID  *CdbMapping;
+} VSCSI_REQ_PACKET_MAP_INFO;
+
 /**
 
   Convenience macros to read and write configuration elements of the
@@ -89,6 +100,202 @@
                                                 (Pointer)                   \
                                                 ))
 
+/**
+
+  Convenience macros to alloc, free, map and unmap the host address to a shared
+  device DMA address.
+
+  @param[in]    Dev             Pointer to the VBLK_DEV structure whose VirtIo
+                                instance will be used for mapping/unmapping.
+                                Dev->VirtIo must be valid.
+
+  @param[in]    HostAddress     The system memory address to map to shared buffer
+                                address.
+
+  @param[out]   Size            On input the number of bytes to map. On output the
+                                number of bytes that were mapped.
+
+  @param[out]   DeviceAddress   The resulting shared map address for the bus master to
+                                access the hosts HostAddress.
+
+  @param[out]   Mapping         A resulting value to pass to Unmap().
+
+  @return  Status code returned by Virtio->MapSharedBuffer() /
+           Virtio->UnmapSharedBuffer().
+**/
+
+#define MAP_SHARED_BUFFER(Dev, Operation, Host, Size, Device, Mapping)       \
+                                            ((Dev)->VirtIo->MapSharedBuffer (\
+                                                (Dev)->VirtIo,               \
+                                                Operation,                   \
+                                                Host,                        \
+                                                Size,                        \
+                                                Device,                      \
+                                                Mapping                      \
+                                                ))
+
+#define VIRTIO_SHARED_UNMAP_BUFFER(Dev, Mapping)                             \
+                                          ((Dev)->VirtIo->UnmapSharedBuffer (\
+                                             (Dev)->VirtIo,                  \
+                                             Mapping                         \
+                                             ))
+
+
+#define VIRTIO_SHARED_ALLOC(Dev, NumPages, Buffer)                           \
+                                      ((Dev)->VirtIo->AllocateSharedPages (  \
+                                         (Dev)->VirtIo,                      \
+                                         NumPages,                           \
+                                         Buffer                              \
+                                        ))
+
+#define VIRTIO_SHARED_FREE(Dev, NumPages, Buffer)                            \
+                                      ((Dev)->VirtIo->FreeSharedPages (      \
+                                         (Dev)->VirtIo,                      \
+                                         NumPages,                           \
+                                         Buffer                              \
+                                        ))
+
+#define VIRTIO_SHARED_MAP_READ(Dev, Host, Size, Device, Mapping)             \
+          MAP_SHARED_BUFFER(Dev, EfiVirtIoOperationBusMasterRead,            \
+            Host, Size, Device, Mapping)
+
+#define VIRTIO_SHARED_MAP_WRITE(Dev, Host, Size, Device, Mapping)            \
+          MAP_SHARED_BUFFER(Dev, EfiVirtIoOperationBusMasterWrite,           \
+            Host, Size, Device, Mapping)
+
+#define VIRTIO_SHARED_MAP_COMMON(Dev, Host, Size, Device, Mapping)           \
+          MAP_SHARED_BUFFER(Dev, EfiVirtIoOperationBusMasterCommonBuffer,    \
+            Host, Size, Device, Mapping)
+
+//
+// The function unmaps buffers mapaped from Scsi request packet
+//
+STATIC
+EFI_STATUS
+VirtioUnmapScsiReqPacketBuffers (
+  IN      VSCSI_DEV                                   *Dev,
+  IN OUT  EFI_EXT_SCSI_PASS_THRU_SCSI_REQUEST_PACKET  *Packet,
+  IN      VSCSI_REQ_PACKET_MAP_INFO                   *MapInfo
+  )
+{
+
+  Packet->InDataBuffer = MapInfo->InDataBuffer;
+  Packet->OutDataBuffer = MapInfo->OutDataBuffer;
+  Packet->SenseData = MapInfo->SenseData;
+  Packet->Cdb = MapInfo->Cdb;
+
+  if (MapInfo->InDataBufferMapping) {
+    VIRTIO_SHARED_UNMAP_BUFFER (Dev, MapInfo->InDataBufferMapping);
+  }
+
+  if (MapInfo->OutDataBufferMapping) {
+    VIRTIO_SHARED_UNMAP_BUFFER (Dev, MapInfo->OutDataBufferMapping);
+  }
+
+  if (MapInfo->SenseDataMapping) {
+    VIRTIO_SHARED_UNMAP_BUFFER (Dev, MapInfo->SenseDataMapping);
+  }
+
+  if (MapInfo->CdbMapping) {
+    VIRTIO_SHARED_UNMAP_BUFFER (Dev, MapInfo->CdbMapping);
+  }
+
+  FreePool (MapInfo);
+  return EFI_SUCCESS;
+}
+
+//
+// The function maps the buffers addressess in virtblk-scsi request packet
+// to device DMA addresses.
+//
+STATIC
+EFI_STATUS
+VirtioMapScsiReqPacketBuffers (
+  IN      VSCSI_DEV                                   *Dev,
+  IN OUT  EFI_EXT_SCSI_PASS_THRU_SCSI_REQUEST_PACKET  *Packet,
+  OUT     VSCSI_REQ_PACKET_MAP_INFO                   **Mapping
+  )
+{
+  EFI_STATUS                Status;
+  UINTN                     NumberOfBytes;
+  EFI_PHYSICAL_ADDRESS      DeviceAddress;
+  VSCSI_REQ_PACKET_MAP_INFO *MapInfo;
+
+  MapInfo = AllocatePool (sizeof (*MapInfo));
+  if (MapInfo == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  SetMem ((VOID *)MapInfo, sizeof (*MapInfo), 0x00);
+
+  MapInfo->InDataBuffer = Packet->InDataBuffer;
+  MapInfo->OutDataBuffer = Packet->OutDataBuffer;
+  MapInfo->SenseData = Packet->SenseData;
+  MapInfo->Cdb = Packet->Cdb;
+
+  //
+  // Map Input buffer
+  //
+  if (Packet->InDataBuffer && Packet->InTransferLength) {
+    NumberOfBytes = Packet->InTransferLength;
+    Status = VIRTIO_SHARED_MAP_WRITE (Dev, Packet->InDataBuffer, &NumberOfBytes,
+               &DeviceAddress, &MapInfo->InDataBufferMapping);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+
+    Packet->InDataBuffer = (VOID *)DeviceAddress;
+  }
+
+  //
+  // Map Output buffer
+  //
+  if (Packet->OutDataBuffer && Packet->OutTransferLength) {
+    NumberOfBytes = Packet->OutTransferLength;
+    Status = VIRTIO_SHARED_MAP_READ (Dev, Packet->OutDataBuffer, &NumberOfBytes,
+               &DeviceAddress, &MapInfo->OutDataBufferMapping);
+    if (EFI_ERROR (Status)) {
+      goto Failed;
+    }
+
+    Packet->OutDataBuffer = (VOID *)DeviceAddress;
+  }
+
+  //
+  // Map SenseData
+  //
+  if (Packet->SenseData && Packet->SenseDataLength) {
+    NumberOfBytes = Packet->SenseDataLength;
+    Status = VIRTIO_SHARED_MAP_READ (Dev, Packet->SenseData, &NumberOfBytes,
+               &DeviceAddress, &MapInfo->SenseDataMapping);
+    if (EFI_ERROR (Status)) {
+      goto Failed;
+    }
+
+    Packet->SenseData = (VOID *)DeviceAddress;
+  }
+
+  //
+  // Map Cdb
+  //
+  if (Packet->Cdb && Packet->CdbLength) {
+    NumberOfBytes = Packet->CdbLength;
+    Status = VIRTIO_SHARED_MAP_READ (Dev, Packet->Cdb, &NumberOfBytes,
+               &DeviceAddress, &MapInfo->CdbMapping);
+    if (EFI_ERROR (Status)) {
+      goto Failed;
+    }
+
+    Packet->Cdb = (VOID *)DeviceAddress;
+  }
+
+  *Mapping = MapInfo;
+  return EFI_SUCCESS;
+
+Failed:
+  VirtioUnmapScsiReqPacketBuffers (Dev, Packet, MapInfo);
+  return Status;
+}
 
 //
 // UEFI Spec 2.3.1 + Errata C, 14.7 Extended SCSI Pass Thru Protocol specifies
@@ -386,7 +593,6 @@ ParseResponse (
   return EFI_DEVICE_ERROR;
 }
 
-
 //
 // The next seven functions implement EFI_EXT_SCSI_PASS_THRU_PROTOCOL
 // for the virtio-scsi HBA. Refer to UEFI Spec 2.3.1 + Errata C, sections
@@ -408,11 +614,16 @@ VirtioScsiPassThru (
   UINT16                    TargetValue;
   EFI_STATUS                Status;
   volatile VIRTIO_SCSI_REQ  Request;
-  volatile VIRTIO_SCSI_RESP Response;
+  VIRTIO_SCSI_RESP          *Response;
   DESC_INDICES              Indices;
+  VOID                      *RequestMapping;
+  VOID                      *ResponseMapping;
+  VSCSI_REQ_PACKET_MAP_INFO *ReqPacketMapping;
+  EFI_PHYSICAL_ADDRESS      DeviceAddress;
+  UINTN                     NumPages;
+  UINTN                     NumBytes;
 
   ZeroMem ((VOID*) &Request, sizeof (Request));
-  ZeroMem ((VOID*) &Response, sizeof (Response));
 
   Dev = VIRTIO_SCSI_FROM_PASS_THRU (This);
   CopyMem (&TargetValue, Target, sizeof TargetValue);
@@ -422,12 +633,42 @@ VirtioScsiPassThru (
     return Status;
   }
 
+  //
+  // Map buffer in Scsi request packet
+  //
+  Status = VirtioMapScsiReqPacketBuffers (Dev, Packet, &ReqPacketMapping);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
   VirtioPrepare (&Dev->Ring, &Indices);
 
   //
+  // Response buffer is bi-directional (we preset with host status and expect
+  // the device to update it). Since the buffer is bi-directional, hence
+  // allocate a new buffer and map it using BusMasterCommonBuffer 
+  //
+  NumBytes = sizeof (VIRTIO_SCSI_RESP);
+  NumPages = EFI_SIZE_TO_PAGES (NumBytes);
+  Status = VIRTIO_SHARED_ALLOC (Dev, NumPages, (VOID *)&Response);
+  if (EFI_ERROR (Status)) {
+    goto Unmap_ReqPacket;
+  }
+
+  Status = VIRTIO_SHARED_MAP_COMMON (Dev, Response, &NumBytes,
+             &DeviceAddress, &ResponseMapping);
+  if (EFI_ERROR (Status)) {
+    VIRTIO_SHARED_FREE (Dev, NumPages, Response);
+    goto Unmap_ReqPacket;
+  }
+
+  ZeroMem ((VOID*) Response, sizeof (*Response));
+
+  //
+  //
   // preset a host status for ourselves that we do not accept as success
   //
-  Response.Response = VIRTIO_SCSI_S_FAILURE;
+  Response->Response = VIRTIO_SCSI_S_FAILURE;
 
   //
   // ensured by VirtioScsiInit() -- this predicate, in combination with the
@@ -436,9 +677,19 @@ VirtioScsiPassThru (
   ASSERT (Dev->Ring.QueueSize >= 4);
 
   //
+  // Map virtio-scsi request buffer
+  //
+  NumBytes = sizeof (Request);
+  Status = VIRTIO_SHARED_MAP_READ (Dev, (VOID *) &Request,
+             &NumBytes, &DeviceAddress, &RequestMapping);
+  if (EFI_ERROR (Status)) {
+    goto Unmap_Response;
+  }
+
+  //
   // enqueue Request
   //
-  VirtioAppendDesc (&Dev->Ring, (UINTN) &Request, sizeof Request,
+  VirtioAppendDesc (&Dev->Ring, (UINTN) DeviceAddress, sizeof Request,
     VRING_DESC_F_NEXT, &Indices);
 
   //
@@ -452,7 +703,7 @@ VirtioScsiPassThru (
   //
   // enqueue Response, to be written by the host
   //
-  VirtioAppendDesc (&Dev->Ring, (UINTN) &Response, sizeof Response,
+  VirtioAppendDesc (&Dev->Ring, (UINTN) Response, sizeof *Response,
     VRING_DESC_F_WRITE | (Packet->InTransferLength > 0 ?
                           VRING_DESC_F_NEXT : 0),
     &Indices);
@@ -476,10 +727,23 @@ VirtioScsiPassThru (
     Packet->HostAdapterStatus = EFI_EXT_SCSI_STATUS_HOST_ADAPTER_OTHER;
     Packet->TargetStatus      = EFI_EXT_SCSI_STATUS_TARGET_GOOD;
     Packet->SenseDataLength   = 0;
-    return EFI_DEVICE_ERROR;
+    Status = EFI_DEVICE_ERROR;
   }
 
-  return ParseResponse (Packet, &Response);
+  VIRTIO_SHARED_UNMAP_BUFFER (Dev, RequestMapping);
+
+  if (!EFI_ERROR (Status)) {
+    Status = ParseResponse (Packet, Response);
+  }
+
+Unmap_Response:
+  VIRTIO_SHARED_UNMAP_BUFFER (Dev, ResponseMapping);
+  VIRTIO_SHARED_FREE (Dev, NumPages, Response);
+
+Unmap_ReqPacket:
+  VirtioUnmapScsiReqPacketBuffers (Dev, Packet, ReqPacketMapping);
+
+  return Status;
 }
 
 
