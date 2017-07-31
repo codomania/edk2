@@ -149,7 +149,7 @@ CpuInitDataInitialize (
   CpuFeaturesData = GetCpuFeaturesData ();
   CpuFeaturesData->InitOrder = AllocateZeroPool (sizeof (CPU_FEATURES_INIT_ORDER) * NumberOfCpus);
   ASSERT (CpuFeaturesData->InitOrder != NULL);
-  CpuFeaturesData->BitMaskSize = PcdGetSize (PcdCpuFeaturesSupport);
+  CpuFeaturesData->BitMaskSize = (UINT32) PcdGetSize (PcdCpuFeaturesSupport);
 
   //
   // Collect CPU Features information
@@ -536,7 +536,14 @@ AnalysisProcessorFeatures (
         }
       } else {
         Status = CpuFeatureInOrder->InitializeFunc (ProcessorNumber, CpuInfo, CpuFeatureInOrder->ConfigData, FALSE);
-        ASSERT_EFI_ERROR (Status);
+        if (EFI_ERROR (Status)) {
+          if (CpuFeatureInOrder->FeatureName != NULL) {
+            DEBUG ((DEBUG_WARN, "Warning :: Failed to enable Feature Name = %a.\n", CpuFeatureInOrder->FeatureName));
+          } else {
+            DEBUG ((DEBUG_WARN, "Warning :: Failed to enable Feature Mask = "));
+            DumpCpuFeatureMask (CpuFeatureInOrder->FeatureMask);
+          }
+        }
       }
       Entry = Entry->ForwardLink;
     }

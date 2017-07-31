@@ -35,7 +35,6 @@
 #define CPU_FEATURE_FASTSTRINGS                     6
 #define CPU_FEATURE_VMX                             7
 #define CPU_FEATURE_SMX                             8
-#define CPU_FEATURE_SENTER                          9
 #define CPU_FEATURE_LOCK_FEATURE_CONTROL_REGISTER   10
 #define CPU_FEATURE_LIMIT_CPUID_MAX_VAL             11
 #define CPU_FEATURE_MCE                             12
@@ -70,6 +69,7 @@
 #define CPU_FEATURE_THREE_STRICK_COUNTER            (32+8)
 #define CPU_FEATURE_APIC_TPR_UPDATE_MESSAGE         (32+9)
 #define CPU_FEATURE_ENERGY_PERFORMANCE_BIAS         (32+10)
+#define CPU_FEATURE_PPIN                            (32+11)
 
 #define CPU_FEATURE_BEFORE_ALL                      BIT27
 #define CPU_FEATURE_AFTER_ALL                       BIT28

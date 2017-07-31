@@ -890,7 +890,7 @@ class Build():
         for Tool in self.ToolChainList:
             if TAB_TOD_DEFINES_FAMILY not in ToolDefinition or Tool not in ToolDefinition[TAB_TOD_DEFINES_FAMILY] \
                or not ToolDefinition[TAB_TOD_DEFINES_FAMILY][Tool]:
-                EdkLogger.warn("No tool chain family found in configuration for %s. Default to MSFT." % Tool)
+                EdkLogger.warn("build", "No tool chain family found in configuration for %s. Default to MSFT." % Tool)
                 ToolChainFamily.append("MSFT")
             else:
                 ToolChainFamily.append(ToolDefinition[TAB_TOD_DEFINES_FAMILY][Tool])
@@ -1029,6 +1029,11 @@ class Build():
         if self.Prebuild:
             EdkLogger.info("\n- Prebuild Start -\n")
             self.LaunchPrebuildFlag = True
+            #
+            # The purpose of .PrebuildEnv file is capture environment variable settings set by the prebuild script
+            # and preserve them for the rest of the main build step, because the child process environment will
+            # evaporate as soon as it exits, we cannot get it in build step.
+            #
             PrebuildEnvFile = os.path.join(GlobalData.gConfDirectory,'.cache','.PrebuildEnv')
             if os.path.isfile(PrebuildEnvFile):
                 os.remove(PrebuildEnvFile)
