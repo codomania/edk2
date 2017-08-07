@@ -107,4 +107,9 @@ VirtioNetExitBoot (
     VirtioUnmapSharedBuffer (Dev->VirtIo, Dev->RxBufMap);
     Dev->RxBufMap = NULL;
   }
+
+  if (Dev->TxSharedReqMap != NULL) {
+    VirtioUnmapSharedBuffer (Dev->VirtIo, Dev->TxSharedReqMap);
+    Dev->TxSharedReqMap = NULL;
+  }
 }
