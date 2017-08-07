@@ -461,9 +461,19 @@ VirtioNetInitialize (
     goto DeviceFailed;
   }
 
+  Status = VirtioRingMap (Dev->VirtIo, &Dev->RxRing, &Dev->RxRingMap);
+  if (EFI_ERROR (Status)) {
+    goto ReleaseRxRing;
+  }
+
   Status = VirtioNetInitRing (Dev, VIRTIO_NET_Q_TX, &Dev->TxRing);
   if (EFI_ERROR (Status)) {
     goto ReleaseRxRing;
+  }
+
+  Status = VirtioRingMap (Dev->VirtIo, &Dev->TxRing, &Dev->TxRingMap);
+  if (EFI_ERROR (Status)) {
+    goto ReleaseTxRing;
   }
 
   //
@@ -510,9 +520,18 @@ AbortDevice:
   Dev->VirtIo->SetDeviceStatus (Dev->VirtIo, 0);
 
 ReleaseTxRing:
+  if (Dev->TxRingMap != NULL) {
+    VirtioRingUnmap (Dev->VirtIo, &Dev->TxRing, Dev->TxRingMap);
+    Dev->TxRingMap = NULL;
+  }
+
   VirtioRingUninit (Dev->VirtIo, &Dev->TxRing);
 
 ReleaseRxRing:
+  if (Dev->RxRingMap != NULL) {
+    VirtioRingUnmap (Dev->VirtIo, &Dev->TxRing, Dev->RxRingMap);
+    Dev->TxRingMap = NULL;
+  }
   VirtioRingUninit (Dev->VirtIo, &Dev->RxRing);
 
 DeviceFailed:

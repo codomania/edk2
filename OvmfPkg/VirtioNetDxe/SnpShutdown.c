@@ -65,6 +65,17 @@ VirtioNetShutdown (
   }
 
   Dev->VirtIo->SetDeviceStatus (Dev->VirtIo, 0);
+
+  if (Dev->RxRingMap != NULL) {
+    VirtioRingUnmap (Dev->VirtIo, &Dev->RxRing, Dev->RxRingMap);
+    Dev->RxRingMap = NULL;
+  }
+
+  if (Dev->TxRingMap != NULL) {
+    VirtioRingUnmap (Dev->VirtIo, &Dev->TxRing, Dev->TxRingMap);
+    Dev->TxRingMap = NULL;
+  }
+
   VirtioNetShutdownRx (Dev);
   VirtioNetShutdownTx (Dev);
   VirtioRingUninit (Dev->VirtIo, &Dev->TxRing);
