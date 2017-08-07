@@ -4,6 +4,7 @@
 
   Copyright (C) 2012-2016, Red Hat, Inc.
   Portion of Copyright (C) 2013, ARM Ltd.
+  Copyright (C) 2017, AMD Inc, All rights reserved.<BR>
 
   This program and the accompanying materials are licensed and made available
   under the terms and conditions of the BSD License which accompanies this
@@ -413,4 +414,223 @@ Virtio10WriteFeatures (
   }
 
   return Status;
+}
+
+/**
+  Helper function to allocate pages that is suitable for sharing with
+  hypervisor.
+
+  @param[in]  VirtIo  The target virtio device to use. It must be valid.
+
+  @param[in]  Pages   The number of pages to allocate.
+
+  @param[out] Buffer  A pointer to store the base system memory address of
+                      the allocated range.
+
+  return              Returns error code from VirtIo->AllocateSharedPages()
+**/
+EFI_STATUS
+EFIAPI
+VirtioAllocateSharedPages (
+  IN  VIRTIO_DEVICE_PROTOCOL  *VirtIo,
+  IN  UINTN                   NumPages,
+  OUT VOID                    **Buffer
+  )
+{
+  return VirtIo->AllocateSharedPages (VirtIo, NumPages, Buffer);
+}
+
+/**
+  Helper function to free pages allocated using VirtioAllocateSharedPages().
+
+  @param[in]  VirtIo  The target virtio device to use. It must be valid.
+
+  @param[in]  Pages   The number of allocated pages.
+
+  @param[in]  Buffer  System memory address allocated from
+                      VirtioAllocateSharedPages ().
+**/
+VOID
+EFIAPI
+VirtioFreeSharedPages (
+  IN  VIRTIO_DEVICE_PROTOCOL  *VirtIo,
+  IN  UINTN                   NumPages,
+  IN  VOID                    *Buffer
+  )
+{
+  VirtIo->FreeSharedPages (VirtIo, NumPages, Buffer);
+}
+
+STATIC
+EFI_STATUS
+VirtioMapSharedBuffer (
+  IN  VIRTIO_DEVICE_PROTOCOL  *VirtIo,
+  IN  VIRTIO_MAP_OPERATION    Operation,
+  IN  VOID                    *HostAddress,
+  IN  UINTN                   NumberOfBytes,
+  OUT EFI_PHYSICAL_ADDRESS    *DeviceAddress,
+  OUT VOID                    **Mapping
+  )
+{
+  EFI_STATUS            Status;
+  VOID                  *MapInfo;
+  UINTN                 Size;
+  EFI_PHYSICAL_ADDRESS  PhysicalAddress;
+
+  Size = NumberOfBytes;
+  Status = VirtIo->MapSharedBuffer (
+                     VirtIo,
+                     Operation,
+                     HostAddress,
+                     &Size,
+                     &PhysicalAddress,
+                     &MapInfo
+                     );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  if (Size < NumberOfBytes) {
+    goto Failed;
+  }
+
+  *Mapping = MapInfo;
+  *DeviceAddress = PhysicalAddress;
+
+  return EFI_SUCCESS;
+Failed:
+  VirtIo->UnmapSharedBuffer (VirtIo, MapInfo);
+  return EFI_OUT_OF_RESOURCES;
+}
+
+/**
+  A helper function to map a system memory to a shared bus master memory for
+  read operation from DMA bus master.
+
+  @param[in]  VirtIo          The target virtio device to use. It must be
+                              valid.
+
+  @param[in]  HostAddress     The system memory address to map to shared bus
+                              master address.
+
+  @param[in]  NumberOfBytes   Number of bytes to be mapped.
+
+  @param[out] DeviceAddress   The resulting shared map address for the bus
+                              master to access the hosts HostAddress.
+
+  @param[out] Mapping         A resulting value to pass to Unmap().
+
+  return                      Returns error code from
+                              VirtIo->MapSharedBuffer()
+**/
+EFI_STATUS
+EFIAPI
+VirtioMapSharedBufferRead (
+  IN  VIRTIO_DEVICE_PROTOCOL  *VirtIo,
+  IN  VOID                    *HostAddress,
+  IN  UINTN                   NumberOfBytes,
+  OUT EFI_PHYSICAL_ADDRESS    *DeviceAddress,
+  OUT VOID                    **Mapping
+  )
+{
+  return VirtioMapSharedBuffer (VirtIo, EfiVirtIoOperationBusMasterRead,
+           HostAddress, NumberOfBytes, DeviceAddress, Mapping);
+}
+
+/**
+  A helper function to map a system memory to a shared bus master memory for
+  write operation from DMA bus master.
+
+  @param[in]  VirtIo          The target virtio device to use. It must be
+                              valid.
+
+  @param[in]  HostAddress     The system memory address to map to shared bus
+                              master address.
+
+  @param[in]  NumberOfBytes   Number of bytes to be mapped.
+
+  @param[out] DeviceAddress   The resulting shared map address for the bus
+                              master to access the hosts HostAddress.
+
+  @param[out] Mapping         A resulting value to pass to Unmap().
+
+  return                      Returns error code from
+                              VirtIo->MapSharedBuffer()
+**/
+EFI_STATUS
+EFIAPI
+VirtioMapSharedBufferWrite (
+  IN  VIRTIO_DEVICE_PROTOCOL  *VirtIo,
+  IN  VOID                    *HostAddress,
+  IN  UINTN                   NumberOfBytes,
+  OUT EFI_PHYSICAL_ADDRESS    *DeviceAddress,
+  OUT VOID                    **Mapping
+  )
+{
+  return VirtioMapSharedBuffer (VirtIo, EfiVirtIoOperationBusMasterWrite,
+           HostAddress, NumberOfBytes, DeviceAddress, Mapping);
+}
+
+/**
+  A helper function to map a system memory to a shared bus master memory for
+  common operation from DMA bus master.
+
+  @param[in]  VirtIo          The target virtio device to use. It must be
+                              valid.
+
+  @param[in]  HostAddress     The system memory address to map to shared bus
+                              master address.
+
+  @param[in]  NumberOfBytes   Number of bytes to be mapped.
+
+  @param[out] Mapping         A resulting value to pass to Unmap().
+
+  return                      Returns error code from
+                              VirtIo->MapSharedBuffer()
+**/
+EFI_STATUS
+EFIAPI
+VirtioMapSharedBufferCommon (
+  IN  VIRTIO_DEVICE_PROTOCOL  *VirtIo,
+  IN  VOID                    *HostAddress,
+  IN  UINTN                   NumberOfBytes,
+  OUT VOID                    **Mapping
+  )
+{
+  EFI_STATUS            Status;
+  EFI_PHYSICAL_ADDRESS  DeviceAddress;
+
+  Status = VirtioMapSharedBuffer (VirtIo,
+             EfiVirtIoOperationBusMasterCommonBuffer, HostAddress,
+             NumberOfBytes, &DeviceAddress, Mapping);
+
+  //
+  // On Success, lets verify that DeviceAddress same as HostAddress
+  //
+  if (!EFI_ERROR (Status)) {
+    ASSERT (DeviceAddress == (EFI_PHYSICAL_ADDRESS) (UINTN) HostAddress);
+  }
+
+  return Status;
+}
+
+/**
+  A helper function to unmap shared bus master memory mapped using Map().
+
+  @param[in]  VirtIo          The target virtio device to use. It must be
+                              valid.
+
+  @param[in] Mapping          A mapping value return from Map().
+
+  return                      Returns error code from
+                              VirtIo->UnmapSharedBuffer()
+**/
+EFI_STATUS
+EFIAPI
+VirtioUnmapSharedBuffer (
+  IN VIRTIO_DEVICE_PROTOCOL  *VirtIo,
+  IN VOID                    *Mapping
+  )
+{
+  return VirtIo->UnmapSharedBuffer (VirtIo, Mapping);
 }

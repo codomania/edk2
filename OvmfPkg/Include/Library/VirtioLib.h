@@ -3,6 +3,7 @@
   Declarations of utility functions used by virtio device drivers.
 
   Copyright (C) 2012-2016, Red Hat, Inc.
+  Copyright (C) 2017, AMD Inc, All rights reserved.<BR>
 
   This program and the accompanying materials are licensed and made available
   under the terms and conditions of the BSD License which accompanies this
@@ -235,4 +236,146 @@ Virtio10WriteFeatures (
   IN OUT UINT8                  *DeviceStatus
   );
 
+/**
+  Helper function to allocate pages that is suitable for sharing with
+  hypervisor.
+
+  @param[in]  VirtIo  The target virtio device to use. It must be valid.
+
+  @param[in]  Pages   The number of pages to allocate.
+
+  @param[out] Buffer  A pointer to store the base system memory address of
+                      the allocated range.
+
+  return              Returns error code from VirtIo->AllocateSharedPages()
+**/
+EFI_STATUS
+EFIAPI
+VirtioAllocateSharedPages (
+  IN  VIRTIO_DEVICE_PROTOCOL  *VirtIo,
+  IN  UINTN                   NumPages,
+  OUT VOID                    **Buffer
+  );
+
+/**
+  Helper function to free pages allocated using VirtioAllocateSharedPages().
+
+  @param[in]  VirtIo  The target virtio device to use. It must be valid.
+
+  @param[in]  Pages   The number of allocated pages.
+
+  @param[in]  Buffer  System memory address allocated from
+                      VirtioAllocateSharedPages ().
+**/
+VOID
+EFIAPI
+VirtioFreeSharedPages (
+  IN  VIRTIO_DEVICE_PROTOCOL  *VirtIo,
+  IN  UINTN                   NumPages,
+  IN  VOID                    *Buffer
+  );
+
+/**
+  A helper function to map a system memory to a shared bus master memory for
+  read operation from DMA bus master.
+
+  @param[in]  VirtIo          The target virtio device to use. It must be
+                              valid.
+
+  @param[in]  HostAddress     The system memory address to map to shared bus
+                              master address.
+
+  @param[in]  NumberOfBytes   Number of bytes to be mapped.
+
+  @param[out] DeviceAddress   The resulting shared map address for the bus
+                              master to access the hosts HostAddress.
+
+  @param[out] Mapping         A resulting value to pass to Unmap().
+
+  return                      Returns error code from
+                              VirtIo->MapSharedBuffer()
+**/
+EFI_STATUS
+EFIAPI
+VirtioMapSharedBufferRead (
+  IN  VIRTIO_DEVICE_PROTOCOL  *VirtIo,
+  IN  VOID                    *HostAddress,
+  IN  UINTN                   NumberOfBytes,
+  OUT EFI_PHYSICAL_ADDRESS    *DeviceAddress,
+  OUT VOID                    **Mapping
+  );
+
+/**
+  A helper function to map a system memory to a shared bus master memory for
+  write operation from DMA bus master.
+
+  @param[in]  VirtIo          The target virtio device to use. It must be
+                              valid.
+
+  @param[in]  HostAddress     The system memory address to map to shared bus
+                              master address.
+
+  @param[in]  NumberOfBytes   Number of bytes to be mapped.
+
+  @param[out] DeviceAddress   The resulting shared map address for the bus
+                              master to access the hosts HostAddress.
+
+  @param[out] Mapping         A resulting value to pass to Unmap().
+
+  return                      Returns error code from
+                              VirtIo->MapSharedBuffer()
+**/
+EFI_STATUS
+EFIAPI
+VirtioMapSharedBufferWrite (
+  IN  VIRTIO_DEVICE_PROTOCOL  *VirtIo,
+  IN  VOID                    *HostAddress,
+  IN  UINTN                   NumberOfBytes,
+  OUT EFI_PHYSICAL_ADDRESS    *DeviceAddress,
+  OUT VOID                    **Mapping
+  );
+
+/**
+  A helper function to map a system memory to a shared bus master memory for
+  common operation from DMA bus master.
+
+  @param[in]  VirtIo          The target virtio device to use. It must be
+                              valid.
+
+  @param[in]  HostAddress     The system memory address to map to shared bus
+                              master address.
+
+  @param[in]  NumberOfBytes   Number of bytes to be mapped.
+
+  @param[out] Mapping         A resulting value to pass to Unmap().
+
+  return                      Returns error code from
+                              VirtIo->MapSharedBuffer()
+**/
+EFI_STATUS
+EFIAPI
+VirtioMapSharedBufferCommon (
+  IN  VIRTIO_DEVICE_PROTOCOL  *VirtIo,
+  IN  VOID                    *HostAddress,
+  IN  UINTN                   NumberOfBytes,
+  OUT VOID                    **Mapping
+  );
+
+/**
+  A helper function to unmap shared bus master memory mapped using Map().
+
+  @param[in]  VirtIo          The target virtio device to use. It must be
+                              valid.
+
+  @param[in] Mapping          A mapping value return from Map().
+
+  return                      Returns error code from
+                              VirtIo->UnmapSharedBuffer()
+**/
+EFI_STATUS
+EFIAPI
+VirtioUnmapSharedBuffer (
+  IN VIRTIO_DEVICE_PROTOCOL  *VirtIo,
+  IN VOID                    *Mapping
+  );
 #endif // _VIRTIO_LIB_H_
