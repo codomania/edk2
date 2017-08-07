@@ -140,11 +140,15 @@ VirtioRngGetRNG (
   UINT32                    Len;
   UINT32                    BufferSize;
   EFI_STATUS                Status;
+  UINTN                     NumPages;
+  EFI_PHYSICAL_ADDRESS      DeviceAddress;
+  VOID                      *Mapping;
 
   if (This == NULL || RNGValueLength == 0 || RNGValue == NULL) {
     return EFI_INVALID_PARAMETER;
   }
 
+  Dev = VIRTIO_ENTROPY_SOURCE_FROM_RNG (This);
   //
   // We only support the raw algorithm, so reject requests for anything else
   //
@@ -153,12 +157,18 @@ VirtioRngGetRNG (
     return EFI_UNSUPPORTED;
   }
 
-  Buffer = (volatile UINT8 *)AllocatePool (RNGValueLength);
-  if (Buffer == NULL) {
+  NumPages = EFI_SIZE_TO_PAGES (RNGValueLength);
+  Status = VirtioAllocateSharedPages (Dev->VirtIo, NumPages, (VOID *)&Buffer);
+  if (EFI_ERROR (Status)) {
     return EFI_DEVICE_ERROR;
   }
 
-  Dev = VIRTIO_ENTROPY_SOURCE_FROM_RNG (This);
+  Status = VirtioMapSharedBufferWrite (Dev->VirtIo, (VOID *)Buffer,
+             RNGValueLength, &DeviceAddress, &Mapping);
+  if (EFI_ERROR (Status)) {
+    VirtioFreeSharedPages (Dev->VirtIo, NumPages, (VOID *)Buffer);
+    return EFI_DEVICE_ERROR;
+  }
 
   //
   // The Virtio RNG device may return less data than we asked it to, and can
@@ -170,7 +180,7 @@ VirtioRngGetRNG (
 
     VirtioPrepare (&Dev->Ring, &Indices);
     VirtioAppendDesc (&Dev->Ring,
-      (UINTN)Buffer + Index,
+      (UINTN)DeviceAddress + Index,
       BufferSize,
       VRING_DESC_F_WRITE,
       &Indices);
@@ -178,11 +188,14 @@ VirtioRngGetRNG (
     if (VirtioFlush (Dev->VirtIo, 0, &Dev->Ring, &Indices, &Len) !=
         EFI_SUCCESS) {
       Status = EFI_DEVICE_ERROR;
+      VirtioUnmapSharedBuffer (Dev->VirtIo, Mapping);
       goto FreeBuffer;
     }
     ASSERT (Len > 0);
     ASSERT (Len <= BufferSize);
   }
+
+  VirtioUnmapSharedBuffer (Dev->VirtIo, Mapping);
 
   for (Index = 0; Index < RNGValueLength; Index++) {
     RNGValue[Index] = Buffer[Index];
@@ -190,7 +203,7 @@ VirtioRngGetRNG (
   Status = EFI_SUCCESS;
 
 FreeBuffer:
-  FreePool ((VOID *)Buffer);
+  VirtioFreeSharedPages (Dev->VirtIo, NumPages, (VOID *)Buffer);
   return Status;
 }
 
@@ -281,6 +294,11 @@ VirtioRngInit (
     goto Failed;
   }
 
+  Status = VirtioRingMap (Dev->VirtIo, &Dev->Ring, &Dev->RingMap);
+  if (EFI_ERROR (Status)) {
+    goto ReleaseQueue;
+  }
+
   //
   // Additional steps for MMIO: align the queue appropriately, and set the
   // size. If anything fails from here on, we must release the ring resources.
@@ -332,6 +350,11 @@ VirtioRngInit (
   return EFI_SUCCESS;
 
 ReleaseQueue:
+  if (Dev->RingMap != NULL) {
+    VirtioRingUnmap (Dev->VirtIo, &Dev->Ring, Dev->RingMap);
+    Dev->RingMap = NULL;
+  }
+
   VirtioRingUninit (Dev->VirtIo, &Dev->Ring);
 
 Failed:
@@ -359,6 +382,11 @@ VirtioRngUninit (
   // the old comms area.
   //
   Dev->VirtIo->SetDeviceStatus (Dev->VirtIo, 0);
+
+  if (Dev->RingMap != NULL) {
+    VirtioRingUnmap (Dev->VirtIo, &Dev->Ring, Dev->RingMap);
+  }
+
   VirtioRingUninit (Dev->VirtIo, &Dev->Ring);
 }
 
@@ -385,6 +413,15 @@ VirtioRngExitBoot (
   //
   Dev = Context;
   Dev->VirtIo->SetDeviceStatus (Dev->VirtIo, 0);
+
+  //
+  // If Ring mapping exist then umap it so that hypervisor will not able to
+  // get readable data after device reset.
+  //
+  if (Dev->RingMap != NULL) {
+    VirtioRingUnmap (Dev->VirtIo, &Dev->Ring, Dev->RingMap);
+    Dev->RingMap = NULL;
+  }
 }
 
 
