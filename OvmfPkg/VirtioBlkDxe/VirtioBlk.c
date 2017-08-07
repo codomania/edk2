@@ -251,6 +251,11 @@ SynchronousRequest (
   volatile VIRTIO_BLK_REQ Request;
   volatile UINT8          HostStatus;
   DESC_INDICES            Indices;
+  VOID                    *RequestMapping;
+  VOID                    *StatusMapping;
+  VOID                    *BufferMapping;
+  EFI_PHYSICAL_ADDRESS    DeviceAddress;
+  EFI_STATUS              Status;
 
   BlockSize = Dev->BlockIoMedia.BlockSize;
 
@@ -289,14 +294,24 @@ SynchronousRequest (
   ASSERT (Dev->Ring.QueueSize >= 3);
 
   //
+  // Map virtio-blk request header
+  //
+  Status = VirtioMapSharedBufferRead (Dev->VirtIo, (VOID *) &Request,
+             sizeof Request, &DeviceAddress, &RequestMapping);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  //
   // virtio-blk header in first desc
   //
-  VirtioAppendDesc (&Dev->Ring, (UINTN) &Request, sizeof Request,
+  VirtioAppendDesc (&Dev->Ring, (UINTN) DeviceAddress, sizeof Request,
     VRING_DESC_F_NEXT, &Indices);
 
   //
   // data buffer for read/write in second desc
   //
+  BufferMapping = NULL;
   if (BufferSize > 0) {
     //
     // From virtio-0.9.5, 2.3.2 Descriptor Table:
@@ -309,29 +324,70 @@ SynchronousRequest (
     ASSERT (BufferSize <= SIZE_1GB);
 
     //
+    // Map data buffer
+    //
+    if (RequestIsWrite) {
+      Status = VirtioMapSharedBufferRead (Dev->VirtIo, (VOID *) Buffer,
+                 BufferSize, &DeviceAddress, &BufferMapping);
+    } else {
+      Status = VirtioMapSharedBufferWrite (Dev->VirtIo, (VOID *) Buffer,
+                 BufferSize, &DeviceAddress, &BufferMapping);
+    }
+
+    if (EFI_ERROR (Status)) {
+      goto Mapping_Failed;
+    }
+
+    //
     // VRING_DESC_F_WRITE is interpreted from the host's point of view.
     //
-    VirtioAppendDesc (&Dev->Ring, (UINTN) Buffer, (UINT32) BufferSize,
+    VirtioAppendDesc (&Dev->Ring, (UINTN) DeviceAddress, (UINT32) BufferSize,
       VRING_DESC_F_NEXT | (RequestIsWrite ? 0 : VRING_DESC_F_WRITE),
       &Indices);
   }
 
   //
+  // Map virtio-blk status header
+  //
+  Status = VirtioMapSharedBufferWrite (Dev->VirtIo, (VOID *) &HostStatus,
+             sizeof HostStatus, &DeviceAddress, &StatusMapping);
+  if (EFI_ERROR (Status)) {
+    goto Mapping_Failed;
+  }
+
+  //
   // host status in last (second or third) desc
   //
-  VirtioAppendDesc (&Dev->Ring, (UINTN) &HostStatus, sizeof HostStatus,
+  VirtioAppendDesc (&Dev->Ring, (UINTN) DeviceAddress, sizeof HostStatus,
     VRING_DESC_F_WRITE, &Indices);
 
   //
   // virtio-blk's only virtqueue is #0, called "requestq" (see Appendix D).
   //
-  if (VirtioFlush (Dev->VirtIo, 0, &Dev->Ring, &Indices,
-        NULL) == EFI_SUCCESS &&
-      HostStatus == VIRTIO_BLK_S_OK) {
-    return EFI_SUCCESS;
+  if (VirtioFlush (Dev->VirtIo, 0, &Dev->Ring, &Indices, NULL) != EFI_SUCCESS) {
+    Status = EFI_DEVICE_ERROR;
   }
 
-  return EFI_DEVICE_ERROR;
+  //
+  // Unmap the HostStatus buffer before accessing it
+  //
+  VirtioUnmapSharedBuffer (Dev->VirtIo, StatusMapping);
+
+  if (Status != EFI_DEVICE_ERROR &&
+      HostStatus == VIRTIO_BLK_S_OK) {
+    Status = EFI_SUCCESS;
+  } else {
+    Status = EFI_DEVICE_ERROR;
+  }
+
+Mapping_Failed:
+  VirtioUnmapSharedBuffer (Dev->VirtIo, RequestMapping);
+
+  if (BufferMapping != NULL) {
+    VirtioUnmapSharedBuffer (Dev->VirtIo, BufferMapping);
+  }
+
+  return Status;
 }
 
 
@@ -728,6 +784,11 @@ VirtioBlkInit (
     goto Failed;
   }
 
+  Status = VirtioRingMap (Dev->VirtIo, &Dev->Ring, &Dev->RingMapping);
+  if (EFI_ERROR (Status)) {
+    goto Failed;
+  }
+
   //
   // Additional steps for MMIO: align the queue appropriately, and set the
   // size. If anything fails from here on, we must release the ring resources.
@@ -812,6 +873,11 @@ VirtioBlkInit (
   return EFI_SUCCESS;
 
 ReleaseQueue:
+  if (Dev->RingMapping != NULL) {
+    VirtioRingUnmap (Dev->VirtIo, &Dev->Ring, Dev->RingMapping);
+    Dev->RingMapping = NULL;
+  }
+
   VirtioRingUninit (Dev->VirtIo, &Dev->Ring);
 
 Failed:
@@ -849,6 +915,14 @@ VirtioBlkUninit (
   //
   Dev->VirtIo->SetDeviceStatus (Dev->VirtIo, 0);
 
+  //
+  // If ring buffer is mapped then Umap() it before uninitializing it.
+  //
+  if (Dev->RingMapping != NULL) {
+    VirtioRingUnmap (Dev->VirtIo, &Dev->Ring, Dev->RingMapping);
+    Dev->RingMapping = NULL;
+  }
+
   VirtioRingUninit (Dev->VirtIo, &Dev->Ring);
 
   SetMem (&Dev->BlockIo,      sizeof Dev->BlockIo,      0x00);
@@ -885,6 +959,15 @@ VirtioBlkExitBoot (
   //
   Dev = Context;
   Dev->VirtIo->SetDeviceStatus (Dev->VirtIo, 0);
+
+  //
+  // Unmap the ring buffer so that hypervisor can not get a readable data
+  // after device is reset.
+  //
+  if (Dev->RingMapping != NULL) {
+    VirtioRingUnmap (Dev->VirtIo, &Dev->Ring, Dev->RingMapping);
+    Dev->RingMapping = NULL;
+  }
 }
 
 /**
