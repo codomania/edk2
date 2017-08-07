@@ -5,6 +5,7 @@
   Copyright (C) 2012, Red Hat, Inc.
   Copyright (c) 2012, Intel Corporation. All rights reserved.<BR>
   Copyright (C) 2013, ARM Ltd.
+  Copyright (C) 2017, AMD Inc, All rights reserved.<BR>
 
   This program and the accompanying materials are licensed and made available
   under the terms and conditions of the BSD License which accompanies this
@@ -270,4 +271,69 @@ VirtioPciSetDeviceStatus (
 
   return VirtioPciIoWrite (Dev, VIRTIO_PCI_OFFSET_QUEUE_DEVICE_STATUS,
       sizeof (UINT8), DeviceStatus);
+}
+
+EFI_STATUS
+EFIAPI
+VirtioPciAllocateSharedPages (
+  VIRTIO_DEVICE_PROTOCOL  *This,
+  UINTN                   NumPages,
+  VOID                    **HostAddress
+  )
+{
+  EFI_STATUS              Status;
+  EFI_PHYSICAL_ADDRESS    PhysicalAddress;
+
+  Status = gBS->AllocatePages (
+                  AllocateAnyPages,
+                  EfiBootServicesData,
+                  NumPages,
+                  &PhysicalAddress
+                  );
+  if (!EFI_ERROR (Status)) {
+    *HostAddress = (VOID *) (UINTN) PhysicalAddress;
+  }
+
+  return Status;
+}
+
+VOID
+EFIAPI
+VirtioPciFreeSharedPages (
+  VIRTIO_DEVICE_PROTOCOL  *This,
+  UINTN                   NumPages,
+  VOID                    *HostAddress
+  )
+{
+  gBS->FreePages ((EFI_PHYSICAL_ADDRESS) (UINTN)HostAddress, NumPages);
+}
+
+EFI_STATUS
+EFIAPI
+VirtioPciMapSharedBuffer (
+  VIRTIO_DEVICE_PROTOCOL  *This,
+  VIRTIO_MAP_OPERATION    Operation,
+  VOID                    *HostAddress,
+  UINTN                   *NumberOfBytes,
+  EFI_PHYSICAL_ADDRESS    *DeviceAddress,
+  VOID                    **Mapping
+  )
+{
+  EFI_PHYSICAL_ADDRESS    PhysicalAddress;
+
+  PhysicalAddress = (EFI_PHYSICAL_ADDRESS) (UINTN) HostAddress;
+
+  *DeviceAddress = PhysicalAddress;
+
+  return EFI_SUCCESS;
+}
+
+EFI_STATUS
+EFIAPI
+VirtioPciUnmapSharedBuffer (
+  VIRTIO_DEVICE_PROTOCOL    *This,
+  VOID                      *Mapping
+  )
+{
+  return EFI_SUCCESS;
 }
