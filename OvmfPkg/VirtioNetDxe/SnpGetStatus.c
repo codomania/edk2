@@ -5,6 +5,7 @@
 
   Copyright (C) 2013, Red Hat, Inc.
   Copyright (c) 2006 - 2014, Intel Corporation. All rights reserved.<BR>
+  Copyright (c) 2017, AMD Inc, All rights reserved.<BR>
 
   This program and the accompanying materials are licensed and made available
   under the terms and conditions of the BSD License which accompanies this
@@ -126,8 +127,10 @@ VirtioNetGetStatus (
       *TxBuf = NULL;
     }
     else {
-      UINT16 UsedElemIdx;
-      UINT32 DescIdx;
+      UINT16                UsedElemIdx;
+      UINT32                DescIdx;
+      EFI_PHYSICAL_ADDRESS  DeviceAddress;
+      EFI_PHYSICAL_ADDRESS  HostAddress;
 
       //
       // fetch the first descriptor among those that the hypervisor reports
@@ -141,9 +144,19 @@ VirtioNetGetStatus (
       ASSERT (DescIdx < (UINT32) (2 * Dev->TxMaxPending - 1));
 
       //
+      // Unmap the DeviceAddress
+      //
+      DeviceAddress = Dev->TxRing.Desc[DescIdx + 1].Addr;
+      Status = VirtioUnmapTxBuf (Dev, &HostAddress, DeviceAddress);
+      if (EFI_ERROR (Status)) {
+        goto Exit;
+      }
+
+      //
+      //
       // report buffer address to caller that has been enqueued by caller
       //
-      *TxBuf = (VOID *)(UINTN) Dev->TxRing.Desc[DescIdx + 1].Addr;
+      *TxBuf = (VOID *)(UINTN) HostAddress;
 
       //
       // now this descriptor can be used again to enqueue a transmit buffer
