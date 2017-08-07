@@ -39,7 +39,15 @@ VirtioNetShutdownRx (
   IN OUT VNET_DEV *Dev
   )
 {
-  FreePool (Dev->RxBuf);
+  //
+  // If RxBuf mapping exist then unmap it.
+  //
+  if (Dev->RxBufMap != NULL) {
+    VirtioUnmapSharedBuffer (Dev->VirtIo, Dev->RxBufMap);
+    Dev->RxBufMap = NULL;
+  }
+
+  VirtioFreeSharedPages (Dev->VirtIo, Dev->RxBufNoPages, (VOID *) Dev->RxBuf);
 }
 
 

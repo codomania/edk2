@@ -244,6 +244,7 @@ VirtioNetInitRx (
   UINTN      PktIdx;
   UINT16     DescIdx;
   UINT8      *RxPtr;
+  UINTN      NumBytes;
 
   //
   // In VirtIo 1.0, the NumBuffers field is mandatory. In 0.9.5, it depends on
@@ -268,9 +269,24 @@ VirtioNetInitRx (
   //
   RxAlwaysPending = (UINT16) MIN (Dev->RxRing.QueueSize / 2, VNET_MAX_PENDING);
 
-  Dev->RxBuf = AllocatePool (RxAlwaysPending * RxBufSize);
-  if (Dev->RxBuf == NULL) {
-    return EFI_OUT_OF_RESOURCES;
+  //
+  // The RxBuf is shared between guest and hypervisor, use SharedPages() to
+  // allocate this memory region and Map() it using BusMasterCommonBuffer
+  // operation so that it can be accessed equally by both guest and
+  // hypervisor.
+  //
+  NumBytes = RxAlwaysPending * RxBufSize;
+  Dev->RxBufNoPages = EFI_SIZE_TO_PAGES (NumBytes);
+  Status = VirtioAllocateSharedPages (Dev->VirtIo, Dev->RxBufNoPages,
+             (VOID *) &Dev->RxBuf);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = VirtioMapSharedBufferCommon (Dev->VirtIo, Dev->RxBuf, NumBytes,
+             &Dev->RxBufMap);
+  if (EFI_ERROR (Status)) {
+    goto Failed;
   }
 
   //
@@ -333,9 +349,18 @@ VirtioNetInitRx (
   Status = Dev->VirtIo->SetQueueNotify (Dev->VirtIo, VIRTIO_NET_Q_RX);
   if (EFI_ERROR (Status)) {
     Dev->VirtIo->SetDeviceStatus (Dev->VirtIo, 0);
-    FreePool (Dev->RxBuf);
+    goto Failed;
   }
 
+  return Status;
+
+Failed:
+  if (Dev->RxBufMap != NULL) {
+    VirtioUnmapSharedBuffer (Dev->VirtIo, Dev->RxBufMap);
+    Dev->RxBufMap = NULL;
+  }
+
+  VirtioFreeSharedPages (Dev->VirtIo, Dev->RxBufNoPages, (VOID *) Dev->RxBuf);
   return Status;
 }
 

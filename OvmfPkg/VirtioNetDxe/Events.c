@@ -102,4 +102,9 @@ VirtioNetExitBoot (
     VirtioRingUnmap (Dev->VirtIo, &Dev->RxRing, Dev->RxRingMap);
     Dev->RxRingMap = NULL;
   }
+
+  if (Dev->RxBufMap != NULL) {
+    VirtioUnmapSharedBuffer (Dev->VirtIo, Dev->RxBufMap);
+    Dev->RxBufMap = NULL;
+  }
 }
