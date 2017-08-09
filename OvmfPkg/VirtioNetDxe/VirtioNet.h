@@ -82,10 +82,12 @@ typedef struct {
   EFI_HANDLE                  MacHandle;         // VirtioNetDriverBindingStart
 
   VRING                       RxRing;            // VirtioNetInitRing
+  VOID                        *RxRingMap;        // VirtioNetInitRing
   UINT8                       *RxBuf;            // VirtioNetInitRx
   UINT16                      RxLastUsed;        // VirtioNetInitRx
 
   VRING                       TxRing;            // VirtioNetInitRing
+  VOID                        *TxRingMap;        // VirtioNetInitRing
   UINT16                      TxMaxPending;      // VirtioNetInitTx
   UINT16                      TxCurPending;      // VirtioNetInitTx
   UINT16                      *TxFreeStack;      // VirtioNetInitTx

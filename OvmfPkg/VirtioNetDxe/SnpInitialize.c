@@ -35,6 +35,7 @@
                            the network device.
   @param[out]    Ring      The virtio-ring inside the VNET_DEV structure,
                            corresponding to Selector.
+  @param[out]    Mapping   A token return from the Map.
 
   @retval EFI_UNSUPPORTED  The queue size reported by the virtio-net device is
                            too small.
@@ -49,11 +50,13 @@ EFIAPI
 VirtioNetInitRing (
   IN OUT VNET_DEV *Dev,
   IN     UINT16   Selector,
-  OUT    VRING    *Ring
+  OUT    VRING    *Ring,
+  OUT    VOID     **Mapping
   )
 {
   EFI_STATUS Status;
   UINT16     QueueSize;
+  UINT64     RingBaseShift;
 
   //
   // step 4b -- allocate selected queue
@@ -79,30 +82,37 @@ VirtioNetInitRing (
     return Status;
   }
 
+  Status = VirtioRingMap (Dev->VirtIo, Ring, &RingBaseShift, Mapping);
+  if (EFI_ERROR (Status)) {
+    goto ReleaseQueue;
+  }
+
   //
   // Additional steps for MMIO: align the queue appropriately, and set the
   // size. If anything fails from here on, we must release the ring resources.
   //
   Status = Dev->VirtIo->SetQueueNum (Dev->VirtIo, QueueSize);
   if (EFI_ERROR (Status)) {
-    goto ReleaseQueue;
+    goto UnmapQueue;
   }
 
   Status = Dev->VirtIo->SetQueueAlign (Dev->VirtIo, EFI_PAGE_SIZE);
   if (EFI_ERROR (Status)) {
-    goto ReleaseQueue;
+    goto UnmapQueue;
   }
 
   //
   // step 4c -- report GPFN (guest-physical frame number) of queue
   //
-  Status = Dev->VirtIo->SetQueueAddress (Dev->VirtIo, Ring, 0);
+  Status = Dev->VirtIo->SetQueueAddress (Dev->VirtIo, Ring, RingBaseShift);
   if (EFI_ERROR (Status)) {
-    goto ReleaseQueue;
+    goto UnmapQueue;
   }
 
   return EFI_SUCCESS;
 
+UnmapQueue:
+  Dev->VirtIo->UnmapSharedBuffer (Dev->VirtIo, Mapping);
 ReleaseQueue:
   VirtioRingUninit (Dev->VirtIo, Ring);
 
@@ -456,12 +466,14 @@ VirtioNetInitialize (
   //
   // step 4b, 4c -- allocate and report virtqueues
   //
-  Status = VirtioNetInitRing (Dev, VIRTIO_NET_Q_RX, &Dev->RxRing);
+  Status = VirtioNetInitRing (Dev, VIRTIO_NET_Q_RX, &Dev->RxRing,
+             &Dev->RxRingMap);
   if (EFI_ERROR (Status)) {
     goto DeviceFailed;
   }
 
-  Status = VirtioNetInitRing (Dev, VIRTIO_NET_Q_TX, &Dev->TxRing);
+  Status = VirtioNetInitRing (Dev, VIRTIO_NET_Q_TX, &Dev->TxRing,
+             &Dev->TxRingMap);
   if (EFI_ERROR (Status)) {
     goto ReleaseRxRing;
   }
@@ -510,9 +522,11 @@ AbortDevice:
   Dev->VirtIo->SetDeviceStatus (Dev->VirtIo, 0);
 
 ReleaseTxRing:
+  Dev->VirtIo->UnmapSharedBuffer (Dev->VirtIo, Dev->TxRingMap);
   VirtioRingUninit (Dev->VirtIo, &Dev->TxRing);
 
 ReleaseRxRing:
+  Dev->VirtIo->UnmapSharedBuffer (Dev->VirtIo, Dev->RxRingMap);
   VirtioRingUninit (Dev->VirtIo, &Dev->RxRing);
 
 DeviceFailed:
