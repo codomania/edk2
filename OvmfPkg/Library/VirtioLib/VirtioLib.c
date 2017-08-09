@@ -61,6 +61,7 @@ VirtioRingInit (
   OUT VRING                  *Ring
   )
 {
+  EFI_STATUS     Status;
   UINTN          RingSize;
   volatile UINT8 *RingPagesPtr;
 
@@ -79,9 +80,16 @@ VirtioRingInit (
                 sizeof *Ring->Used.AvailEvent,
                 EFI_PAGE_SIZE);
 
+  //
+  // Allocate a shared ring buffer
+  //
   Ring->NumPages = EFI_SIZE_TO_PAGES (RingSize);
-  Ring->Base = AllocatePages (Ring->NumPages);
-  if (Ring->Base == NULL) {
+  Status = VirtIo->AllocateSharedPages (
+                          VirtIo,
+                          Ring->NumPages,
+                          &Ring->Base
+                          );
+  if (EFI_ERROR (Status)) {
     return EFI_OUT_OF_RESOURCES;
   }
   SetMem (Ring->Base, RingSize, 0x00);
@@ -143,7 +151,7 @@ VirtioRingUninit (
   IN OUT VRING                  *Ring
   )
 {
-  FreePages (Ring->Base, Ring->NumPages);
+  VirtIo->FreeSharedPages (VirtIo, Ring->NumPages, Ring->Base);
   SetMem (Ring, sizeof *Ring, 0x00);
 }
 
