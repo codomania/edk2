@@ -4,6 +4,7 @@
 
   Copyright (C) 2012-2016, Red Hat, Inc.
   Portion of Copyright (C) 2013, ARM Ltd.
+  Copyright (C) 2017, AMD Inc, All rights reserved.<BR>
 
   This program and the accompanying materials are licensed and made available
   under the terms and conditions of the BSD License which accompanies this
@@ -413,4 +414,81 @@ Virtio10WriteFeatures (
   }
 
   return Status;
+}
+
+/**
+  Provides the virtio device address required to access system memory from a
+  DMA bus master.
+
+  @param[in]     This             The protocol instance pointer.
+
+  @param[in]     Operation        Indicates if the bus master is going to
+                                  read or write to system memory.
+
+  @param[in]     HostAddress      The system memory address to map to shared
+                                  buffer address.
+
+  @param[in,out] NumberOfBytes    On input the number of bytes to map.
+                                  On output the number of bytes that were
+                                  mapped.
+
+  @param[out]    DeviceAddress    The resulting shared map address for the
+                                  bus master to access the hosts HostAddress.
+
+  @param[out]    Mapping          A resulting taken to pass to
+                                  VIRTIO_UNMAP_SHARED.
+
+
+  @retval EFI_SUCCESS             The range was mapped for the returned
+                                  NumberOfBytes.
+  @retval EFI_UNSUPPORTED         The HostAddress cannot be mapped as a
+                                  common buffer.
+  @retval EFI_INVALID_PARAMETER   One or more parameters are invalid.
+  @retval EFI_OUT_OF_RESOURCES    The request could not be completed due to
+                                  a lack of resources.
+  @retval EFI_DEVICE_ERROR        The system hardware could not map the
+                                  requested address.
+**/
+EFI_STATUS
+EFIAPI
+VirtioMapAllBytesInSharedBuffer (
+  IN  VIRTIO_DEVICE_PROTOCOL  *VirtIo,
+  IN  VIRTIO_MAP_OPERATION    Operation,
+  IN  VOID                    *HostAddress,
+  IN  UINTN                   NumberOfBytes,
+  OUT EFI_PHYSICAL_ADDRESS    *DeviceAddress,
+  OUT VOID                    **Mapping
+  )
+{
+  EFI_STATUS            Status;
+  VOID                  *MapInfo;
+  UINTN                 Size;
+  EFI_PHYSICAL_ADDRESS  PhysicalAddress;
+
+  Size = NumberOfBytes;
+  Status = VirtIo->MapSharedBuffer (
+                     VirtIo,
+                     Operation,
+                     HostAddress,
+                     &Size,
+                     &PhysicalAddress,
+                     &MapInfo
+                     );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  if (Size < NumberOfBytes) {
+    goto Failed;
+  }
+
+  *Mapping = MapInfo;
+  *DeviceAddress = PhysicalAddress;
+
+  return EFI_SUCCESS;
+
+Failed:
+  VirtIo->UnmapSharedBuffer (VirtIo, MapInfo);
+  *Mapping = NULL;
+  return EFI_OUT_OF_RESOURCES;
 }
