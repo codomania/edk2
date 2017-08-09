@@ -247,13 +247,16 @@ VirtioNetInitRx (
   IN OUT VNET_DEV *Dev
   )
 {
-  EFI_STATUS Status;
-  UINTN      VirtioNetReqSize;
-  UINTN      RxBufSize;
-  UINT16     RxAlwaysPending;
-  UINTN      PktIdx;
-  UINT16     DescIdx;
-  UINT8      *RxPtr;
+  EFI_STATUS            Status;
+  UINTN                 VirtioNetReqSize;
+  UINTN                 RxBufSize;
+  UINT16                RxAlwaysPending;
+  UINTN                 PktIdx;
+  UINT16                DescIdx;
+  UINT8                 *RxPtr;
+  UINTN                 NumBytes;
+  EFI_PHYSICAL_ADDRESS  DeviceAddress;
+  UINT64                BufBaseShift;
 
   //
   // In VirtIo 1.0, the NumBuffers field is mandatory. In 0.9.5, it depends on
@@ -278,10 +281,36 @@ VirtioNetInitRx (
   //
   RxAlwaysPending = (UINT16) MIN (Dev->RxRing.QueueSize / 2, VNET_MAX_PENDING);
 
-  Dev->RxBuf = AllocatePool (RxAlwaysPending * RxBufSize);
-  if (Dev->RxBuf == NULL) {
-    return EFI_OUT_OF_RESOURCES;
+  //
+  // The RxBuf is shared between guest and hypervisor, use SharedPages() to
+  // allocate this memory region and Map() it using BusMasterCommonBuffer
+  // operation so that it can be accessed equally by both guest and
+  // hypervisor.
+  //
+  NumBytes = RxAlwaysPending * RxBufSize;
+  Dev->RxBufNoPages = EFI_SIZE_TO_PAGES (NumBytes);
+  Status = Dev->VirtIo->AllocateSharedPages (
+                          Dev->VirtIo,
+                          Dev->RxBufNoPages,
+                          (VOID *) &Dev->RxBuf
+                          );
+  if (EFI_ERROR (Status)) {
+    return Status;
   }
+
+  Status = VirtioMapAllBytesInSharedBuffer (
+             Dev->VirtIo,
+             VirtioOperationBusMasterCommonBuffer,
+             Dev->RxBuf,
+             NumBytes,
+             &DeviceAddress,
+             &Dev->RxBufMap
+             );
+  if (EFI_ERROR (Status)) {
+    goto FreeSharedBuffer;
+  }
+
+  BufBaseShift = (UINT64) (UINTN)Dev->RxBuf - (UINT64) DeviceAddress;
 
   //
   // virtio-0.9.5, 2.4.2 Receiving Used Buffers From the Device
@@ -304,6 +333,11 @@ VirtioNetInitRx (
   DescIdx = 0;
   RxPtr = Dev->RxBuf;
   for (PktIdx = 0; PktIdx < RxAlwaysPending; ++PktIdx) {
+    UINT64    Address;
+
+    Address = (UINTN) RxPtr;
+    Address += BufBaseShift;
+
     //
     // virtio-0.9.5, 2.4.1.2 Updating the Available Ring
     // invisible to the host until we update the Index Field
@@ -313,13 +347,13 @@ VirtioNetInitRx (
     //
     // virtio-0.9.5, 2.4.1.1 Placing Buffers into the Descriptor Table
     //
-    Dev->RxRing.Desc[DescIdx].Addr  = (UINTN) RxPtr;
+    Dev->RxRing.Desc[DescIdx].Addr  = (UINTN) Address;
     Dev->RxRing.Desc[DescIdx].Len   = (UINT32) VirtioNetReqSize;
     Dev->RxRing.Desc[DescIdx].Flags = VRING_DESC_F_WRITE | VRING_DESC_F_NEXT;
     Dev->RxRing.Desc[DescIdx].Next  = (UINT16) (DescIdx + 1);
     RxPtr += Dev->RxRing.Desc[DescIdx++].Len;
 
-    Dev->RxRing.Desc[DescIdx].Addr  = (UINTN) RxPtr;
+    Dev->RxRing.Desc[DescIdx].Addr  = (UINTN) Address;
     Dev->RxRing.Desc[DescIdx].Len   = (UINT32) (RxBufSize - VirtioNetReqSize);
     Dev->RxRing.Desc[DescIdx].Flags = VRING_DESC_F_WRITE;
     RxPtr += Dev->RxRing.Desc[DescIdx++].Len;
@@ -343,9 +377,17 @@ VirtioNetInitRx (
   Status = Dev->VirtIo->SetQueueNotify (Dev->VirtIo, VIRTIO_NET_Q_RX);
   if (EFI_ERROR (Status)) {
     Dev->VirtIo->SetDeviceStatus (Dev->VirtIo, 0);
-    FreePool (Dev->RxBuf);
+    goto UnmapSharedBuffer;
   }
 
+  return Status;
+
+UnmapSharedBuffer:
+  Dev->VirtIo->UnmapSharedBuffer (Dev->VirtIo, Dev->RxBufMap);
+
+FreeSharedBuffer:
+  Dev->VirtIo->FreeSharedPages (Dev->VirtIo, Dev->RxBufNoPages,
+                 (VOID *) Dev->RxBuf);
   return Status;
 }
 
