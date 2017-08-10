@@ -156,6 +156,8 @@ EFI_STATUS
   @param[in] Ring             The initialized VRING object to take the
                               addresses from.
 
+  @param[in] RingBaseShift    The offset for the Ring Base address.
+
   @retval EFI_SUCCESS         The data was written successfully.
   @retval EFI_UNSUPPORTED     The underlying IO device doesn't support the
                               provided address offset and write size.
@@ -164,7 +166,8 @@ typedef
 EFI_STATUS
 (EFIAPI *VIRTIO_SET_QUEUE_ADDRESS) (
   IN VIRTIO_DEVICE_PROTOCOL  *This,
-  IN VRING                   *Ring
+  IN VRING                   *Ring,
+  IN UINT64                  RingBaseShift
   );
 
 /**
