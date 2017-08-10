@@ -460,7 +460,9 @@ VirtioPciDeviceBindingStart (
 
   Status = Device->PciIo->Attributes (Device->PciIo,
                          EfiPciIoAttributeOperationEnable,
-                         EFI_PCI_IO_ATTRIBUTE_IO, NULL);
+                         (EFI_PCI_IO_ATTRIBUTE_IO |
+                          EFI_PCI_IO_ATTRIBUTE_BUS_MASTER),
+                         NULL);
   if (EFI_ERROR (Status)) {
     goto ClosePciIo;
   }
