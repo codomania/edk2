@@ -137,4 +137,38 @@ VirtioMmioSetGuestFeatures (
   IN UINT64                  Features
   );
 
+EFI_STATUS
+EFIAPI
+VirtioMmioAllocateSharedPages (
+  IN  VIRTIO_DEVICE_PROTOCOL        *This,
+  IN  UINTN                         NumPages,
+  OUT VOID                          **HostAddress
+  );
+
+VOID
+EFIAPI
+VirtioMmioFreeSharedPages (
+  IN  VIRTIO_DEVICE_PROTOCOL        *This,
+  IN  UINTN                         NumPages,
+  IN  VOID                          *HostAddress
+  );
+
+EFI_STATUS
+EFIAPI
+VirtioMmioMapSharedBuffer (
+  IN      VIRTIO_DEVICE_PROTOCOL        *This,
+  IN      VIRTIO_MAP_OPERATION          Operation,
+  IN      VOID                          *HostAddress,
+  IN OUT  UINTN                         *NumberOfBytes,
+  OUT     EFI_PHYSICAL_ADDRESS          *DeviceAddress,
+  OUT     VOID                          **Mapping
+  );
+
+EFI_STATUS
+EFIAPI
+VirtioMmioUnmapSharedBuffer (
+  IN  VIRTIO_DEVICE_PROTOCOL        *This,
+  IN  VOID                          *Mapping
+  );
+
 #endif // _VIRTIO_MMIO_DEVICE_INTERNAL_H_
