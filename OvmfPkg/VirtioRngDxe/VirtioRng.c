@@ -273,7 +273,7 @@ VirtioRngInit (
     goto Failed;
   }
 
-  Features &= VIRTIO_F_VERSION_1;
+  Features &= VIRTIO_F_VERSION_1 | VIRTIO_F_IOMMU_PLATFORM;
 
   //
   // In virtio-1.0, feature negotiation is expected to complete before queue

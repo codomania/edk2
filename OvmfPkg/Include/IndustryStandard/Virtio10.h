@@ -83,4 +83,9 @@ typedef struct {
 //
 #define VIRTIO_F_VERSION_1 BIT32
 
+//
+// VirtIo 1.0 reserved iommu platform feature bits
+//
+#define VIRTIO_F_IOMMU_PLATFORM BIT33
+
 #endif // _VIRTIO_1_0_H_

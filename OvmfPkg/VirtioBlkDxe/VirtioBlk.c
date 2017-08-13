@@ -773,7 +773,8 @@ VirtioBlkInit (
   }
 
   Features &= VIRTIO_BLK_F_BLK_SIZE | VIRTIO_BLK_F_TOPOLOGY | VIRTIO_BLK_F_RO |
-              VIRTIO_BLK_F_FLUSH | VIRTIO_F_VERSION_1;
+              VIRTIO_BLK_F_FLUSH | VIRTIO_F_VERSION_1 |
+              VIRTIO_F_IOMMU_PLATFORM;
 
   //
   // In virtio-1.0, feature negotiation is expected to complete before queue

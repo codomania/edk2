@@ -536,7 +536,8 @@ VirtioNetInitialize (
   ASSERT (Dev->Snm.MediaPresentSupported ==
     !!(Features & VIRTIO_NET_F_STATUS));
 
-  Features &= VIRTIO_NET_F_MAC | VIRTIO_NET_F_STATUS | VIRTIO_F_VERSION_1;
+  Features &= VIRTIO_NET_F_MAC | VIRTIO_NET_F_STATUS | VIRTIO_F_VERSION_1 |
+              VIRTIO_F_IOMMU_PLATFORM;
 
   //
   // In virtio-1.0, feature negotiation is expected to complete before queue
