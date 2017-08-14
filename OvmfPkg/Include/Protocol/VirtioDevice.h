@@ -320,16 +320,22 @@ EFI_STATUS
   );
 
 
-///
-///  This protocol provides an abstraction over the VirtIo transport layer
-///
-///  DISCLAIMER: this protocol is a work in progress, and should not be used
-///  outside of the EDK II tree.
-///
+/**
+
+  This protocol provides an abstraction over the VirtIo transport layer
+
+  DISCLAIMER: this protocol is a work in progress, and should not be used
+  outside of the EDK II tree.
+**/
+
 struct _VIRTIO_DEVICE_PROTOCOL {
-  /// VirtIo Specification Revision encoded with VIRTIO_SPEC_REVISION()
+  //
+  // VirtIo Specification Revision encoded with VIRTIO_SPEC_REVISION()
+  //
   UINT32                      Revision;
-  /// From the Virtio Spec
+  //
+  // From the Virtio Spec
+  //
   INT32                       SubSystemDeviceId;
 
   VIRTIO_GET_DEVICE_FEATURES  GetDeviceFeatures;
