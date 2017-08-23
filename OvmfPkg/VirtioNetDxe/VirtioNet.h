@@ -4,6 +4,7 @@
   Protocol instances for virtio-net devices.
 
   Copyright (C) 2013, Red Hat, Inc.
+  Copyright (c) 2017, AMD Inc, All rights reserved.<BR>
 
   This program and the accompanying materials are licensed and made available
   under the terms and conditions of the BSD License which accompanies this
@@ -85,6 +86,8 @@ typedef struct {
   VOID                        *RxRingMap;        // VirtioRingMap
   UINT8                       *RxBuf;            // VirtioNetInitRx
   UINT16                      RxLastUsed;        // VirtioNetInitRx
+  UINTN                       RxBufNoPages;      // VirtioNetInitRx
+  VOID                        *RxBufMap;         // VirtioMapSharedBuffer
 
   VRING                       TxRing;            // VirtioNetInitRing
   VOID                        *TxRingMap;        // VirtioRingMap

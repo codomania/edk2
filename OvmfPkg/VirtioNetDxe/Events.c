@@ -95,4 +95,10 @@ VirtioNetExitBoot (
   //
   Dev->VirtIo->UnmapSharedBuffer (Dev->VirtIo, Dev->TxRingMap);
   Dev->VirtIo->UnmapSharedBuffer (Dev->VirtIo, Dev->RxRingMap);
+
+  //
+  // Unmap Rx buffer so that hypervisor will not be able get readable data after
+  // device is reset.
+  //
+  Dev->VirtIo->UnmapSharedBuffer (Dev->VirtIo, Dev->RxBufMap);
 }
