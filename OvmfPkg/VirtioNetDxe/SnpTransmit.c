@@ -55,7 +55,8 @@
   @retval EFI_INVALID_PARAMETER One or more of the parameters has an
                                 unsupported value.
   @retval EFI_DEVICE_ERROR      The command could not be sent to the network
-                                interface.
+                                interface or failed to map the Buffer to
+                                bus master address.
   @retval EFI_UNSUPPORTED       This function is not supported by the network
                                 interface.
 
@@ -73,11 +74,12 @@ VirtioNetTransmit (
   IN UINT16                      *Protocol OPTIONAL
   )
 {
-  VNET_DEV   *Dev;
-  EFI_TPL    OldTpl;
-  EFI_STATUS Status;
-  UINT16     DescIdx;
-  UINT16     AvailIdx;
+  VNET_DEV              *Dev;
+  EFI_TPL               OldTpl;
+  EFI_STATUS            Status;
+  UINT16                DescIdx;
+  UINT16                AvailIdx;
+  EFI_PHYSICAL_ADDRESS  DeviceAddress;
 
   if (This == NULL || BufferSize == 0 || Buffer == NULL) {
     return EFI_INVALID_PARAMETER;
@@ -144,10 +146,24 @@ VirtioNetTransmit (
   }
 
   //
+  // Map the transmit buffer HostAddress to a DeviceAddress
+  //
+  Status = VirtioMapTxBuf (
+             Dev,
+             (EFI_PHYSICAL_ADDRESS) (UINTN) Buffer,
+             BufferSize,
+             &DeviceAddress
+             );
+  if (EFI_ERROR (Status)) {
+    Status = EFI_DEVICE_ERROR;
+    goto Exit;
+  }
+
+  //
   // virtio-0.9.5, 2.4.1 Supplying Buffers to The Device
   //
   DescIdx = Dev->TxFreeStack[Dev->TxCurPending++];
-  Dev->TxRing.Desc[DescIdx + 1].Addr  = (UINTN) Buffer;
+  Dev->TxRing.Desc[DescIdx + 1].Addr  = (UINTN) DeviceAddress;
   Dev->TxRing.Desc[DescIdx + 1].Len   = (UINT32) BufferSize;
 
   //

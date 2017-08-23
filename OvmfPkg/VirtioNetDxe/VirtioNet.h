@@ -269,6 +269,23 @@ VirtioNetShutdownTx (
   IN OUT VNET_DEV *Dev
   );
 
+EFI_STATUS
+EFIAPI
+VirtioMapTxBuf (
+  IN  VNET_DEV              *Dev,
+  IN  EFI_PHYSICAL_ADDRESS  HostAddress,
+  IN  UINTN                 NumberOfBytes,
+  OUT EFI_PHYSICAL_ADDRESS  *DeviceAddress
+  );
+
+EFI_STATUS
+EFIAPI
+VirtioUnmapTxBuf (
+  IN  VNET_DEV              *Dev,
+  OUT EFI_PHYSICAL_ADDRESS  *HostAddress,
+  IN  EFI_PHYSICAL_ADDRESS  DeviceAddress
+  );
+
 //
 // event callbacks
 //

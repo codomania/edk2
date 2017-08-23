@@ -5,6 +5,7 @@
 
   Copyright (C) 2013, Red Hat, Inc.
   Copyright (c) 2006 - 2014, Intel Corporation. All rights reserved.<BR>
+  Copyright (c) 2017, AMD Inc, All rights reserved.<BR>
 
   This program and the accompanying materials are licensed and made available
   under the terms and conditions of the BSD License which accompanies this
@@ -47,7 +48,8 @@
   @retval EFI_INVALID_PARAMETER One or more of the parameters has an
                                 unsupported value.
   @retval EFI_DEVICE_ERROR      The command could not be sent to the network
-                                interface.
+                                interface or failed to map TxBuf to bus master
+                                address.
   @retval EFI_UNSUPPORTED       This function is not supported by the network
                                 interface.
 
@@ -126,8 +128,10 @@ VirtioNetGetStatus (
       *TxBuf = NULL;
     }
     else {
-      UINT16 UsedElemIdx;
-      UINT32 DescIdx;
+      UINT16                UsedElemIdx;
+      UINT32                DescIdx;
+      EFI_PHYSICAL_ADDRESS  BufferAddress;
+      EFI_PHYSICAL_ADDRESS  DeviceAddress;
 
       //
       // fetch the first descriptor among those that the hypervisor reports
@@ -141,9 +145,26 @@ VirtioNetGetStatus (
       ASSERT (DescIdx < (UINT32) (2 * Dev->TxMaxPending - 1));
 
       //
+      // Ring descriptor contains the device address of buffer.
+      // Lets unmap the device address and get its corresponding
+      // host buffer address.
+      //
+      DeviceAddress = Dev->TxRing.Desc[DescIdx + 1].Addr;
+      Status = VirtioUnmapTxBuf (
+                 Dev,
+                 &BufferAddress,
+                 DeviceAddress
+                 );
+      if (EFI_ERROR (Status)) {
+        Status = EFI_DEVICE_ERROR;
+        goto Exit;
+      }
+
+      //
+      //
       // report buffer address to caller that has been enqueued by caller
       //
-      *TxBuf = (VOID *)(UINTN) Dev->TxRing.Desc[DescIdx + 1].Addr;
+      *TxBuf = (VOID *)(UINTN) BufferAddress;
 
       //
       // now this descriptor can be used again to enqueue a transmit buffer
