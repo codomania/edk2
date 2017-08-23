@@ -88,4 +88,11 @@ VirtioNetExitBoot (
   if (Dev->Snm.State == EfiSimpleNetworkInitialized) {
     Dev->VirtIo->SetDeviceStatus (Dev->VirtIo, 0);
   }
+
+  //
+  // Unmap Tx and Rx rings so that hypervisor will not be able get readable data
+  // after device is reset.
+  //
+  Dev->VirtIo->UnmapSharedBuffer (Dev->VirtIo, Dev->TxRingMap);
+  Dev->VirtIo->UnmapSharedBuffer (Dev->VirtIo, Dev->RxRingMap);
 }

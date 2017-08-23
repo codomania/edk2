@@ -67,7 +67,9 @@ VirtioNetShutdown (
   Dev->VirtIo->SetDeviceStatus (Dev->VirtIo, 0);
   VirtioNetShutdownRx (Dev);
   VirtioNetShutdownTx (Dev);
+  Dev->VirtIo->UnmapSharedBuffer (Dev->VirtIo, Dev->TxRingMap);
   VirtioRingUninit (Dev->VirtIo, &Dev->TxRing);
+  Dev->VirtIo->UnmapSharedBuffer (Dev->VirtIo, Dev->RxRingMap);
   VirtioRingUninit (Dev->VirtIo, &Dev->RxRing);
 
   Dev->Snm.State = EfiSimpleNetworkStarted;
