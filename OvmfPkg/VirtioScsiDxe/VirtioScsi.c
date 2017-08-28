@@ -409,11 +409,19 @@ VirtioScsiPassThru (
   UINT16                    TargetValue;
   EFI_STATUS                Status;
   volatile VIRTIO_SCSI_REQ  Request;
-  volatile VIRTIO_SCSI_RESP Response;
+  volatile VIRTIO_SCSI_RESP *Response;
+  VOID                      *ResponseBuffer;
   DESC_INDICES              Indices;
+  VOID                      *RequestMapping;
+  VOID                      *ResponseMapping;
+  VOID                      *InDataMapping;
+  VOID                      *OutDataMapping;
+  EFI_PHYSICAL_ADDRESS      RequestDeviceAddress;
+  EFI_PHYSICAL_ADDRESS      ResponseDeviceAddress;
+  EFI_PHYSICAL_ADDRESS      InDataDeviceAddress;
+  EFI_PHYSICAL_ADDRESS      OutDataDeviceAddress;
 
   ZeroMem ((VOID*) &Request, sizeof (Request));
-  ZeroMem ((VOID*) &Response, sizeof (Response));
 
   Dev = VIRTIO_SCSI_FROM_PASS_THRU (This);
   CopyMem (&TargetValue, Target, sizeof TargetValue);
@@ -423,12 +431,96 @@ VirtioScsiPassThru (
     return Status;
   }
 
-  VirtioPrepare (&Dev->Ring, &Indices);
+  //
+  // Map the scsi-blk Request header buffer
+  //
+  Status = VirtioMapAllBytesInSharedBuffer (
+             Dev->VirtIo,
+             VirtioOperationBusMasterRead,
+             (VOID *) &Request,
+             sizeof Request,
+             &RequestDeviceAddress,
+             &RequestMapping);
+  if (EFI_ERROR (Status)) {
+    return EFI_DEVICE_ERROR;
+  }
+
+  //
+  // Map the input buffer
+  //
+  if (Packet->InTransferLength > 0) {
+    Status = VirtioMapAllBytesInSharedBuffer (
+               Dev->VirtIo,
+               VirtioOperationBusMasterWrite,
+               Packet->InDataBuffer,
+               Packet->InTransferLength,
+               &InDataDeviceAddress,
+               &InDataMapping
+               );
+    if (EFI_ERROR (Status)) {
+      Status = EFI_DEVICE_ERROR;
+      goto UnmapRequestBuffer;
+    }
+  }
+
+  //
+  // Map the output buffer
+  //
+  if (Packet->OutTransferLength > 0) {
+    Status = VirtioMapAllBytesInSharedBuffer (
+               Dev->VirtIo,
+               VirtioOperationBusMasterRead,
+               Packet->OutDataBuffer,
+               Packet->OutTransferLength,
+               &OutDataDeviceAddress,
+               &OutDataMapping
+               );
+    if (EFI_ERROR (Status)) {
+      Status = EFI_DEVICE_ERROR;
+      goto UnmapInDataBuffer;
+    }
+  }
+
+  //
+  // Response header is bi-direction (we preset with host status and expect the
+  // device to update it). Allocate a response buffer which can be mapped to
+  // access equally by both processor and device.
+  //
+  Status = Dev->VirtIo->AllocateSharedPages (
+                          Dev->VirtIo,
+                          EFI_SIZE_TO_PAGES (sizeof *Response),
+                          &ResponseBuffer
+                          );
+  if (EFI_ERROR (Status)) {
+    Status = EFI_DEVICE_ERROR;
+    goto UnmapOutDataBuffer;
+  }
+
+  Response = ResponseBuffer;
 
   //
   // preset a host status for ourselves that we do not accept as success
   //
-  Response.Response = VIRTIO_SCSI_S_FAILURE;
+  Response->Response = VIRTIO_SCSI_S_FAILURE;
+
+  //
+  // Map the response buffer with BusMasterCommonBuffer so that response
+  // buffer can be accessed by both host and device.
+  //
+  Status = VirtioMapAllBytesInSharedBuffer (
+             Dev->VirtIo,
+             VirtioOperationBusMasterCommonBuffer,
+             ResponseBuffer,
+             sizeof (*Response),
+             &ResponseDeviceAddress,
+             &ResponseMapping
+             );
+  if (EFI_ERROR (Status)) {
+    Status = EFI_DEVICE_ERROR;
+    goto FreeResponseBuffer;
+  }
+
+  VirtioPrepare (&Dev->Ring, &Indices);
 
   //
   // ensured by VirtioScsiInit() -- this predicate, in combination with the
@@ -439,31 +531,49 @@ VirtioScsiPassThru (
   //
   // enqueue Request
   //
-  VirtioAppendDesc (&Dev->Ring, (UINTN) &Request, sizeof Request,
-    VRING_DESC_F_NEXT, &Indices);
+  VirtioAppendDesc (
+    &Dev->Ring,
+    RequestDeviceAddress,
+    sizeof Request,
+    VRING_DESC_F_NEXT,
+    &Indices
+    );
 
   //
   // enqueue "dataout" if any
   //
   if (Packet->OutTransferLength > 0) {
-    VirtioAppendDesc (&Dev->Ring, (UINTN) Packet->OutDataBuffer,
-      Packet->OutTransferLength, VRING_DESC_F_NEXT, &Indices);
+    VirtioAppendDesc (
+      &Dev->Ring,
+      OutDataDeviceAddress,
+      Packet->OutTransferLength,
+      VRING_DESC_F_NEXT,
+      &Indices
+      );
   }
 
   //
   // enqueue Response, to be written by the host
   //
-  VirtioAppendDesc (&Dev->Ring, (UINTN) &Response, sizeof Response,
-    VRING_DESC_F_WRITE | (Packet->InTransferLength > 0 ?
-                          VRING_DESC_F_NEXT : 0),
-    &Indices);
+  VirtioAppendDesc (
+    &Dev->Ring,
+    ResponseDeviceAddress,
+    sizeof *Response,
+    VRING_DESC_F_WRITE | (Packet->InTransferLength > 0 ? VRING_DESC_F_NEXT : 0),
+    &Indices
+    );
 
   //
   // enqueue "datain" if any, to be written by the host
   //
   if (Packet->InTransferLength > 0) {
-    VirtioAppendDesc (&Dev->Ring, (UINTN) Packet->InDataBuffer,
-      Packet->InTransferLength, VRING_DESC_F_WRITE, &Indices);
+    VirtioAppendDesc (
+      &Dev->Ring,
+      InDataDeviceAddress,
+      Packet->InTransferLength,
+      VRING_DESC_F_WRITE,
+      &Indices
+      );
   }
 
   // If kicking the host fails, we must fake a host adapter error.
@@ -477,10 +587,36 @@ VirtioScsiPassThru (
     Packet->HostAdapterStatus = EFI_EXT_SCSI_STATUS_HOST_ADAPTER_OTHER;
     Packet->TargetStatus      = EFI_EXT_SCSI_STATUS_TARGET_GOOD;
     Packet->SenseDataLength   = 0;
-    return EFI_DEVICE_ERROR;
+    Status = EFI_DEVICE_ERROR;
+    goto UnmapResponseBuffer;
   }
 
-  return ParseResponse (Packet, &Response);
+  Status = ParseResponse (Packet, Response);
+
+UnmapResponseBuffer:
+  Dev->VirtIo->UnmapSharedBuffer (Dev->VirtIo, ResponseMapping);
+
+FreeResponseBuffer:
+  Dev->VirtIo->FreeSharedPages (
+                 Dev->VirtIo,
+                 EFI_SIZE_TO_PAGES (sizeof *Response),
+                 ResponseBuffer
+                 );
+
+UnmapOutDataBuffer:
+  if (Packet->OutTransferLength > 0) {
+    Dev->VirtIo->UnmapSharedBuffer (Dev->VirtIo, OutDataMapping);
+  }
+
+UnmapInDataBuffer:
+  if (Packet->InTransferLength > 0) {
+    Dev->VirtIo->UnmapSharedBuffer (Dev->VirtIo, InDataMapping);
+  }
+
+UnmapRequestBuffer:
+  Dev->VirtIo->UnmapSharedBuffer (Dev->VirtIo, RequestMapping);
+
+  return Status;
 }
 
 
