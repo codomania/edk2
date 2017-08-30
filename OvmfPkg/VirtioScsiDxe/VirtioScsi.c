@@ -387,6 +387,26 @@ ParseResponse (
   return EFI_DEVICE_ERROR;
 }
 
+/**
+ * The function can be used to create a fake host adapter error.
+ * When VirtioScsiPassThru is failed due to some reasons then this function
+ * can be called to contstruct a host adapter error.
+ *
+ */
+STATIC
+EFI_STATUS
+ReportHostAdapterError (
+  OUT EFI_EXT_SCSI_PASS_THRU_SCSI_REQUEST_PACKET  *Packet
+  )
+{
+  Packet->InTransferLength  = 0;
+  Packet->OutTransferLength = 0;
+  Packet->HostAdapterStatus = EFI_EXT_SCSI_STATUS_HOST_ADAPTER_OTHER;
+  Packet->TargetStatus      = EFI_EXT_SCSI_STATUS_TARGET_GOOD;
+  Packet->SenseDataLength   = 0;
+  return EFI_DEVICE_ERROR;
+}
+
 
 //
 // The next seven functions implement EFI_EXT_SCSI_PASS_THRU_PROTOCOL
@@ -472,12 +492,7 @@ VirtioScsiPassThru (
   //
   if (VirtioFlush (Dev->VirtIo, VIRTIO_SCSI_REQUEST_QUEUE, &Dev->Ring,
         &Indices, NULL) != EFI_SUCCESS) {
-    Packet->InTransferLength  = 0;
-    Packet->OutTransferLength = 0;
-    Packet->HostAdapterStatus = EFI_EXT_SCSI_STATUS_HOST_ADAPTER_OTHER;
-    Packet->TargetStatus      = EFI_EXT_SCSI_STATUS_TARGET_GOOD;
-    Packet->SenseDataLength   = 0;
-    return EFI_DEVICE_ERROR;
+    return ReportHostAdapterError (Packet);
   }
 
   return ParseResponse (Packet, &Response);
