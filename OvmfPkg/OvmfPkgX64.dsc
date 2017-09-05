@@ -820,6 +820,8 @@
   }
 !endif
 
+  DebugPkg/GdbSyms/GdbSyms.inf
+
 !if $(SECURE_BOOT_ENABLE) == TRUE
   SecurityPkg/VariableAuthenticated/SecureBootConfigDxe/SecureBootConfigDxe.inf
 !endif
