@@ -18,6 +18,7 @@ images were converted from MACH-O or ELF binaries.
 import array
 import getopt
 import binascii
+import re
 
 __license__ = "BSD"
 __version = "1.0.0"
@@ -243,6 +244,7 @@ class ReloadUefi (gdb.Command):
             base = base + opt['SizeOfHeaders']
         if sym_name != self.EINVAL:
             sym_name = sym_name.cast (self.ptype('CHAR8')).string ()
+            sym_name = re.sub(r"\.dll$", ".debug", sym_name)
             syms.append ("add-symbol-file %s 0x%x" % \
                              (sym_name,
                               long (base)))
