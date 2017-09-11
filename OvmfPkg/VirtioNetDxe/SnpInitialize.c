@@ -176,6 +176,15 @@ VirtioNetInitTx (
     return EFI_OUT_OF_RESOURCES;
   }
 
+  Dev->TxBufMapInfoCollection = OrderedCollectionInit (
+                                  VirtioNetTxMapInfoCompare,
+                                  VirtioNetTxMapInfoCompare
+                                  );
+  if (Dev->TxBufMapInfoCollection == NULL) {
+    Status = EFI_OUT_OF_RESOURCES;
+    goto FreeTxFreeStack;
+  }
+
   //
   // Allocate TxSharedReq header and map with BusMasterCommonBuffer so that it
   // can be accessed equally by both processor and device.
@@ -186,7 +195,7 @@ VirtioNetInitTx (
                           &TxSharedReqBuffer
                           );
   if (EFI_ERROR (Status)) {
-    goto FreeTxFreeStack;
+    goto UninitMapInfoCollection;
   }
 
   ZeroMem (TxSharedReqBuffer, sizeof *Dev->TxSharedReq);
@@ -267,6 +276,10 @@ FreeTxSharedReqBuffer:
                  EFI_SIZE_TO_PAGES (sizeof *(Dev->TxSharedReq)),
                  TxSharedReqBuffer
                  );
+
+UninitMapInfoCollection:
+  OrderedCollectionUninit (Dev->TxBufMapInfoCollection);
+
 FreeTxFreeStack:
   FreePool (Dev->TxFreeStack);
 

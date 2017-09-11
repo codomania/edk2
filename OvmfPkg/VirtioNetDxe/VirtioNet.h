@@ -26,6 +26,7 @@
 #include <Protocol/DevicePath.h>
 #include <Protocol/DriverBinding.h>
 #include <Protocol/SimpleNetwork.h>
+#include <Library/OrderedCollectionLib.h>
 
 #define VNET_SIG SIGNATURE_32 ('V', 'N', 'E', 'T')
 
@@ -100,6 +101,7 @@ typedef struct {
   VOID                        *TxSharedReqMap;   // VirtioNetInitTx
   UINT16                      TxLastUsed;        // VirtioNetInitTx
   EFI_PHYSICAL_ADDRESS        RxBufDeviceBase;   // VirtioNetInitRx
+  ORDERED_COLLECTION          *TxBufMapInfoCollection; // VirtioNetInitTx
 } VNET_DEV;
 
 
@@ -278,6 +280,36 @@ VirtioNetUninitRing (
   IN OUT VNET_DEV *Dev,
   IN OUT VRING    *Ring,
   IN     VOID     *RingMap
+  );
+
+//
+// utility functions to map caller-supplied Tx buffer system physical address
+// to a device address and vice versa
+//
+EFI_STATUS
+EFIAPI
+VirtioNetMapTxBuf (
+  IN  VNET_DEV              *Dev,
+  IN  UINT16                DescIdx,
+  IN  VOID                  *Buffer,
+  IN  UINTN                 NumberOfBytes,
+  OUT EFI_PHYSICAL_ADDRESS  *DeviceAddress
+  );
+
+INTN
+EFIAPI
+VirtioNetTxMapInfoCompare (
+  IN CONST VOID *UserStruct1,
+  IN CONST VOID *UserStruct2
+  );
+
+EFI_STATUS
+EFIAPI
+VirtioNetUnmapTxBuf (
+  IN  VNET_DEV              *Dev,
+  IN  UINT16                DescIdx,
+  OUT VOID                  **Buffer,
+  IN  EFI_PHYSICAL_ADDRESS  DeviceAddress
   );
 
 //
