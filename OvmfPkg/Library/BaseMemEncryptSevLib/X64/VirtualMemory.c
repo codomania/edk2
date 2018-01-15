@@ -572,6 +572,9 @@ SetMemoryEncDec (
   UINT64                         AddressEncMask;
   BOOLEAN                        IsWpEnabled;
   RETURN_STATUS                  Status;
+  UINTN                          Size;
+  BOOLEAN                        CBitChanged;
+  PHYSICAL_ADDRESS               OrigPhysicalAddress;
 
   DEBUG ((
     DEBUG_VERBOSE,
@@ -617,6 +620,10 @@ SetMemoryEncDec (
   }
 
   Status = EFI_SUCCESS;
+
+  Size = Length;
+  CBitChanged = FALSE;
+  OrigPhysicalAddress = PhysicalAddress;
 
   while (Length)
   {
@@ -674,6 +681,7 @@ SetMemoryEncDec (
           ));
         PhysicalAddress += BIT30;
         Length -= BIT30;
+        CBitChanged = TRUE;
       } else {
         //
         // We must split the page
@@ -718,6 +726,7 @@ SetMemoryEncDec (
           SetOrClearCBit (&PageDirectory2MEntry->Uint64, Mode);
           PhysicalAddress += BIT21;
           Length -= BIT21;
+          CBitChanged = TRUE;
         } else {
           //
           // We must split up this page into 4K pages
@@ -750,6 +759,7 @@ SetMemoryEncDec (
         SetOrClearCBit (&PageTableEntry->Uint64, Mode);
         PhysicalAddress += EFI_PAGE_SIZE;
         Length -= EFI_PAGE_SIZE;
+        CBitChanged = TRUE;
       }
     }
   }
@@ -766,6 +776,13 @@ SetMemoryEncDec (
   // Flush TLB
   //
   CpuFlushTlb();
+
+  //
+  // Notify Hypervisor on C-bit status
+  //
+  if (CBitChanged) {
+    SetMemoryEncDecHypercall3 (OrigPhysicalAddress, Size, Mode);
+  }
 
 Done:
   //
