@@ -189,4 +189,9 @@ VOID
 InstallVirtualAddressChangeHandler (
   VOID
   );
+
+VOID
+FvbBeforeFlashProbe (
+  VOID
+  );
 #endif

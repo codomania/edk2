@@ -155,3 +155,13 @@ InstallVirtualAddressChangeHandler (
                   );
   ASSERT_EFI_ERROR (Status);
 }
+
+VOID
+FvbBeforeFlashProbe (
+  VOID
+  )
+{
+  //
+  // Do nothing
+  //
+}

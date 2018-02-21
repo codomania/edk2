@@ -967,6 +967,11 @@ FvbInitialize (
   UINTN                               NumOfBlocks;
   RETURN_STATUS                       PcdStatus;
 
+  //
+  // execute platform specific hooks before probing the flash
+  //
+  FvbBeforeFlashProbe ();
+
   if (EFI_ERROR (QemuFlashInitialize ())) {
     //
     // Return an error so image will be unloaded

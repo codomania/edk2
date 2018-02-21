@@ -17,6 +17,7 @@
 #include <Library/DebugLib.h>
 #include <Library/PcdLib.h>
 #include <Library/SmmServicesTableLib.h>
+#include <Library/MemEncryptSevLib.h>
 #include <Protocol/DevicePath.h>
 #include <Protocol/SmmFirmwareVolumeBlock.h>
 
@@ -66,4 +67,38 @@ InstallVirtualAddressChangeHandler (
   //
   // Nothing.
   //
+}
+
+VOID
+FvbBeforeFlashProbe (
+  VOID
+  )
+{
+
+  ASSERT (FeaturePcdGet (PcdSmmSmramRequire));
+
+  //
+  // When SEV is enabled, AmdSevDxe runs early in PEI phase and clears the C-bit
+  // from the MMIO space (including flash ranges) but the driver runs in non SMM
+  // context hence it cleared the flash ranges from non SMM page table.
+  // When SMM is enabled, the flash services are accessed from the SMM mode
+  // hence we explicitly clear the C-bit on flash ranges from SMM page table.
+  //
+  if (MemEncryptSevIsEnabled ()) {
+    EFI_STATUS              Status;
+    EFI_PHYSICAL_ADDRESS    BaseAddress;
+    UINTN                   FdBlockSize, FdBlockCount;
+
+    BaseAddress = (EFI_PHYSICAL_ADDRESS) PcdGet32 (PcdOvmfFdBaseAddress);
+    FdBlockSize = PcdGet32 (PcdOvmfFirmwareBlockSize);
+    FdBlockCount = PcdGet32 (PcdOvmfFirmwareFdSize) / FdBlockSize;
+
+    Status = MemEncryptSevClearPageEncMask (
+               0,
+               BaseAddress,
+               EFI_SIZE_TO_PAGES (FdBlockSize * FdBlockCount),
+               FALSE
+              );
+    ASSERT_EFI_ERROR (Status);
+  }
 }
