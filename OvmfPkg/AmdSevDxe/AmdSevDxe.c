@@ -25,6 +25,8 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/DxeServicesTableLib.h>
 #include <Library/MemEncryptSevLib.h>
+#include <Register/SmramSaveStateMap.h>
+#include <Register/QemuSmramSaveStateMap.h>
 
 EFI_STATUS
 EFIAPI
@@ -69,6 +71,23 @@ AmdSevDxeEntryPoint (
     }
 
     FreePool (AllDescMap);
+  }
+
+  //
+  // When SMM is enabled, clear the C-bit from SMM Saved State Area
+  //
+  if (FeaturePcdGet (PcdSmmSmramRequire)) {
+    EFI_PHYSICAL_ADDRESS  SmmSavedStateAreaAddress;
+
+    SmmSavedStateAreaAddress = SMM_DEFAULT_SMBASE + SMRAM_SAVE_STATE_MAP_OFFSET;
+
+    Status = MemEncryptSevClearPageEncMask (
+               0,
+               SmmSavedStateAreaAddress,
+               EFI_SIZE_TO_PAGES (sizeof(QEMU_SMRAM_SAVE_STATE_MAP)),
+               FALSE
+               );
+    ASSERT_EFI_ERROR (Status);
   }
 
   return EFI_SUCCESS;
