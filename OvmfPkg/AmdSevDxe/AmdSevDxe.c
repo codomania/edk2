@@ -25,6 +25,8 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/DxeServicesTableLib.h>
 #include <Library/MemEncryptSevLib.h>
+#include <Register/SmramSaveStateMap.h>
+#include <Register/QemuSmramSaveStateMap.h>
 
 EFI_STATUS
 EFIAPI
@@ -69,6 +71,39 @@ AmdSevDxeEntryPoint (
     }
 
     FreePool (AllDescMap);
+  }
+
+  //
+  // When SMM is enabled, clear the C-bit from SMM Saved State Area
+  //
+  // NOTES: The SavedStateArea address cleared here is before SMBASE
+  // relocation. Currently, we do not clear the SavedStateArea address after
+  // SMBASE is relocated due to the following reasons:
+  //
+  // 1) Guest BIOS never access the relocated SavedStateArea.
+  //
+  // 2) The C-bit works on page-aligned address, but the SavedStateArea
+  // address is not a page-aligned. Theoretically, we could roundup the address
+  // and clear the C-bit of aligned address but looking carefully we found
+  // that some portion of the page contains code -- which will causes a bigger
+  // issues for SEV guest. When SEV is enabled, all the code must be encrypted
+  // otherwise hardware will cause trap.
+  //
+  // We restore the C-bit for this SMM Saved State Area after SMBASE relocation
+  // is completed (See OvmfPkg/Library/SmmCpuFeaturesLib/SmmCpuFeaturesLib.c).
+  //
+  if (FeaturePcdGet (PcdSmmSmramRequire)) {
+    EFI_PHYSICAL_ADDRESS  SmmSavedStateAreaAddress;
+
+    SmmSavedStateAreaAddress = SMM_DEFAULT_SMBASE + SMRAM_SAVE_STATE_MAP_OFFSET;
+
+    Status = MemEncryptSevClearPageEncMask (
+               0,
+               SmmSavedStateAreaAddress,
+               EFI_SIZE_TO_PAGES (sizeof(QEMU_SMRAM_SAVE_STATE_MAP)),
+               FALSE
+               );
+    ASSERT_EFI_ERROR (Status);
   }
 
   return EFI_SUCCESS;

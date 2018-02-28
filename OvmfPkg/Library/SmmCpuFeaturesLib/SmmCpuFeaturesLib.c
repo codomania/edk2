@@ -20,6 +20,7 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #include <Library/MemoryAllocationLib.h>
 #include <Library/SmmServicesTableLib.h>
 #include <Library/DebugLib.h>
+#include <Library/MemEncryptSevLib.h>
 #include <Register/QemuSmramSaveStateMap.h>
 
 //
@@ -183,6 +184,26 @@ SmmCpuFeaturesSmmRelocationComplete (
   VOID
   )
 {
+  EFI_STATUS Status;
+  EFI_PHYSICAL_ADDRESS  SmmSavedStateAreaAddress;
+
+  //
+  // When SEV is enabled, the SMM SavedState is mapped with C=0
+  // (See OvmfPkg/AmdSevDxe/AmdSevDxe.c). Now the SMBASE is relocated hence we
+  // remap the address with C=1.
+  //
+  if (!MemEncryptSevIsEnabled ()) {
+    return;
+  }
+
+  SmmSavedStateAreaAddress = SMM_DEFAULT_SMBASE + SMRAM_SAVE_STATE_MAP_OFFSET;
+  Status = MemEncryptSevSetPageEncMask (
+             0,
+             SmmSavedStateAreaAddress,
+             EFI_SIZE_TO_PAGES (sizeof(QEMU_SMRAM_SAVE_STATE_MAP)),
+             FALSE
+             );
+  ASSERT_EFI_ERROR (Status);
 }
 
 /**

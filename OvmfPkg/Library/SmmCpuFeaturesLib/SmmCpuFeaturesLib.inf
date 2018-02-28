@@ -36,3 +36,4 @@
   PcdLib
   DebugLib
   SmmServicesTableLib
+  MemEncryptSevLib
