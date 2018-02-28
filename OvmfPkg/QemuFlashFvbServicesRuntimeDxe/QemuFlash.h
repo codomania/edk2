@@ -88,5 +88,12 @@ QemuFlashConvertPointers (
   VOID
   );
 
+VOID
+BeforeFlashProbe (
+  EFI_PHYSICAL_ADDRESS    BaseAddress,
+  UINTN                   FdBlockSize,
+  UINTN                   FdBlockCount
+  );
+
 #endif
 

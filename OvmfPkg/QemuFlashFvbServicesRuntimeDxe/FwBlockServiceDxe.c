@@ -155,3 +155,15 @@ InstallVirtualAddressChangeHandler (
                   );
   ASSERT_EFI_ERROR (Status);
 }
+
+VOID
+BeforeFlashProbe (
+  EFI_PHYSICAL_ADDRESS    BaseAddress,
+  UINTN                   FdBlockSize,
+  UINTN                   FdBlockCount
+  )
+{
+  //
+  // Do nothing
+  //
+}
