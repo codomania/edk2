@@ -978,6 +978,7 @@ class PcdReport(object):
                         for pcd in GlobalData.BuildOptionPcd:
                             if (Pcd.TokenSpaceGuidCName, Pcd.TokenCName) == (pcd[0], pcd[1]):
                                 PcdValue = pcd[2]
+                                Pcd.DefaultValue = PcdValue
                                 BuildOptionMatch = True
                                 break
 
@@ -1236,14 +1237,10 @@ class PcdReport(object):
     def PrintStructureInfo(self, File, Struct):
         NewInfo = collections.OrderedDict()
         for Key, Value in Struct.items():
-            if Key not in NewInfo:
-                NewInfo[Key] = Value[0]
+            if Value[1] and 'build command options' in Value[1]:
+                FileWrite(File, '    *B  %-*s = %s' % (self.MaxLen + 4, '.' + Key, Value[0]))
             else:
-                del NewInfo[Key]
-                NewInfo[Key] = Value[0]
-        if NewInfo:
-            for item in NewInfo:
-                FileWrite(File, '        %-*s = %s' % (self.MaxLen + 4, '.' + item, NewInfo[item]))
+                FileWrite(File, '        %-*s = %s' % (self.MaxLen + 4, '.' + Key, Value[0]))
 
     def StrtoHex(self, value):
         try:

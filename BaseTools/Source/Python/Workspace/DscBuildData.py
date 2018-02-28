@@ -37,7 +37,9 @@ from Common.Parsing import IsValidWord
 from Common.VariableAttributes import VariableAttributes
 import Common.GlobalData as GlobalData
 import subprocess
+from Common.Misc import SaveFileOnChange
 from Workspace.BuildClassObject import PlatformBuildClassObject, StructurePcd, PcdClassObject, ModuleBuildClassObject
+from collections import OrderedDict
 
 #
 # Treat CHAR16 as a synonym for UINT16.  CHAR16 support is required for VFR C structs
@@ -89,7 +91,6 @@ LIBS = $(LIB_PATH)\Common.lib
 '''
 
 PcdGccMakefile = '''
-ARCH ?= IA32
 MAKEROOT ?= $(EDK_TOOLS_PATH)/Source/C
 LIBS = -lCommon
 '''
@@ -156,12 +157,15 @@ class DscBuildData(PlatformBuildClassObject):
         self._ToolChainFamily = None
         self._Clear()
         self._HandleOverridePath()
-        if os.getenv("WORKSPACE"):
-            self.OutputPath = os.path.join(os.getenv("WORKSPACE"), 'Build', PcdValueInitName)
-        else:
-            self.OutputPath = os.path.dirname(self.DscFile)
+        self.WorkspaceDir = os.getenv("WORKSPACE") if os.getenv("WORKSPACE") else ""
         self.DefaultStores = None
         self.SkuIdMgr = SkuClass(self.SkuName, self.SkuIds)
+    @property
+    def OutputPath(self):
+        if os.getenv("WORKSPACE"):
+            return os.path.join(os.getenv("WORKSPACE"), self.OutputDirectory, self._Target + "_" + self._Toolchain,PcdValueInitName)
+        else:
+            return os.path.dirname(self.DscFile)
 
     ## XXX[key] = value
     def __setitem__(self, key, value):
@@ -679,8 +683,9 @@ class DscBuildData(PlatformBuildClassObject):
                 for TokenSpaceGuid, PcdCName, Setting, Dummy1, Dummy2, Dummy3, Dummy4,Dummy5 in RecordList:
                     TokenList = GetSplitValueList(Setting)
                     DefaultValue = TokenList[0]
-                    if len(TokenList) > 1:
-                        MaxDatumSize = TokenList[1]
+                    # the format is PcdName| Value | VOID* | MaxDatumSize
+                    if len(TokenList) > 2:
+                        MaxDatumSize = TokenList[2]
                     else:
                         MaxDatumSize = ''
                     TypeString = self._PCD_TYPE_STRING_[Type]
@@ -894,12 +899,11 @@ class DscBuildData(PlatformBuildClassObject):
                 if pcd[2] == "":
                     pcdset.append((pcd[0],pcd[1],pcd[3]))
                 else:
-                    pcdobj = self._Pcds.get((pcd[1],pcd[0]))
-                    if pcdobj:
-                        pcdset.append((pcd[0],pcd[1], pcdobj.DefaultValue))
-                    else:
+                    if (pcd[1],pcd[0]) not in self._Pcds:
                         pcdvalue = pcd[3] if len(pcd) == 4 else pcd[2]
                         pcdset.append((pcd[0],pcd[1],pcdvalue))
+                    #else:
+                        # remove the settings from command line since it has been handled.
         GlobalData.BuildOptionPcd = pcdset
     def GetFieldValueFromComm(self,ValueStr,TokenSpaceGuidCName, TokenCName, FieldName):
         PredictedFieldType = "VOID*"
@@ -991,6 +995,8 @@ class DscBuildData(PlatformBuildClassObject):
                     NewValue = self.GetFieldValueFromComm(pcdvalue, TokenSpaceGuidCName, TokenCName, FieldName)
                     GlobalData.BuildOptionPcd[i] = (TokenSpaceGuidCName, TokenCName, FieldName,NewValue,("build command options",1))
                 else:
+                    # Replace \' to ', \\\' to \'
+                    pcdvalue = pcdvalue.replace("\\\\\\'", '\\\\\\"').replace('\\\'', '\'').replace('\\\\\\"', "\\'")
                     for key in self.DecPcds:
                         PcdItem = self.DecPcds[key]
                         if HasTokenSpace:
@@ -1002,7 +1008,7 @@ class DscBuildData(PlatformBuildClassObject):
                                     except BadExpression, Value:
                                         EdkLogger.error('Parser', FORMAT_INVALID, 'PCD [%s.%s] Value "%s",  %s' %
                                                         (TokenSpaceGuidCName, TokenCName, pcdvalue, Value))
-                                    if PcdDatumType == "VOID*":
+                                    if PcdDatumType not in [TAB_UINT8, TAB_UINT16, TAB_UINT32, TAB_UINT64, 'BOOLEAN']:
                                         pcdvalue = 'H' + pcdvalue
                                 elif pcdvalue.startswith("L'"):
                                     try:
@@ -1010,7 +1016,7 @@ class DscBuildData(PlatformBuildClassObject):
                                     except BadExpression, Value:
                                         EdkLogger.error('Parser', FORMAT_INVALID, 'PCD [%s.%s] Value "%s",  %s' %
                                                         (TokenSpaceGuidCName, TokenCName, pcdvalue, Value))
-                                    if pcdvalue.startswith('{'):
+                                    if PcdDatumType not in [TAB_UINT8, TAB_UINT16, TAB_UINT32, TAB_UINT64, 'BOOLEAN']:
                                         pcdvalue = 'H' + pcdvalue
                                 elif pcdvalue.startswith("'"):
                                     try:
@@ -1018,7 +1024,7 @@ class DscBuildData(PlatformBuildClassObject):
                                     except BadExpression, Value:
                                         EdkLogger.error('Parser', FORMAT_INVALID, 'PCD [%s.%s] Value "%s",  %s' %
                                                         (TokenSpaceGuidCName, TokenCName, pcdvalue, Value))
-                                    if pcdvalue.startswith('{'):
+                                    if PcdDatumType not in [TAB_UINT8, TAB_UINT16, TAB_UINT32, TAB_UINT64, 'BOOLEAN']:
                                         pcdvalue = 'H' + pcdvalue
                                 elif pcdvalue.startswith('L'):
                                     pcdvalue = 'L"' + pcdvalue[1:] + '"'
@@ -1031,8 +1037,12 @@ class DscBuildData(PlatformBuildClassObject):
                                     try:
                                         pcdvalue = ValueExpressionEx(pcdvalue, PcdDatumType, self._GuidDict)(True)
                                     except BadExpression, Value:
-                                        EdkLogger.error('Parser', FORMAT_INVALID, 'PCD [%s.%s] Value "%s",  %s' %
-                                                        (TokenSpaceGuidCName, TokenCName, pcdvalue, Value))
+                                        try:
+                                            pcdvalue = '"' + pcdvalue + '"'
+                                            pcdvalue = ValueExpressionEx(pcdvalue, PcdDatumType, self._GuidDict)(True)
+                                        except BadExpression, Value:
+                                            EdkLogger.error('Parser', FORMAT_INVALID, 'PCD [%s.%s] Value "%s",  %s' %
+                                                            (TokenSpaceGuidCName, TokenCName, pcdvalue, Value))
                                 NewValue = BuildOptionPcdValueFormat(TokenSpaceGuidCName, TokenCName, PcdDatumType, pcdvalue)
                                 FoundFlag = True
                         else:
@@ -1048,7 +1058,7 @@ class DscBuildData(PlatformBuildClassObject):
                                             except BadExpression, Value:
                                                 EdkLogger.error('Parser', FORMAT_INVALID, 'PCD [%s.%s] Value "%s", %s' %
                                                                 (TokenSpaceGuidCName, TokenCName, pcdvalue, Value))
-                                            if PcdDatumType == "VOID*":
+                                            if PcdDatumType not in [TAB_UINT8, TAB_UINT16, TAB_UINT32, TAB_UINT64,'BOOLEAN']:
                                                 pcdvalue = 'H' + pcdvalue
                                         elif pcdvalue.startswith("L'"):
                                             try:
@@ -1057,7 +1067,7 @@ class DscBuildData(PlatformBuildClassObject):
                                             except BadExpression, Value:
                                                 EdkLogger.error('Parser', FORMAT_INVALID, 'PCD [%s.%s] Value "%s",  %s' %
                                                                 (TokenSpaceGuidCName, TokenCName, pcdvalue, Value))
-                                            if pcdvalue.startswith('{'):
+                                            if PcdDatumType not in [TAB_UINT8, TAB_UINT16, TAB_UINT32, TAB_UINT64, 'BOOLEAN']:
                                                 pcdvalue = 'H' + pcdvalue
                                         elif pcdvalue.startswith("'"):
                                             try:
@@ -1066,7 +1076,7 @@ class DscBuildData(PlatformBuildClassObject):
                                             except BadExpression, Value:
                                                 EdkLogger.error('Parser', FORMAT_INVALID, 'PCD [%s.%s] Value "%s",  %s' %
                                                                 (TokenSpaceGuidCName, TokenCName, pcdvalue, Value))
-                                            if pcdvalue.startswith('{'):
+                                            if PcdDatumType not in [TAB_UINT8, TAB_UINT16, TAB_UINT32, TAB_UINT64, 'BOOLEAN']:
                                                 pcdvalue = 'H' + pcdvalue
                                         elif pcdvalue.startswith('L'):
                                             pcdvalue = 'L"' + pcdvalue[1:] + '"'
@@ -1080,9 +1090,12 @@ class DscBuildData(PlatformBuildClassObject):
                                             try:
                                                 pcdvalue = ValueExpressionEx(pcdvalue, PcdDatumType, self._GuidDict)(True)
                                             except BadExpression, Value:
-                                                EdkLogger.error('Parser', FORMAT_INVALID,
-                                                                'PCD [%s.%s] Value "%s",  %s' %
-                                                                (TokenSpaceGuidCName, TokenCName, pcdvalue, Value))
+                                                try:
+                                                    pcdvalue = '"' + pcdvalue + '"'
+                                                    pcdvalue = ValueExpressionEx(pcdvalue, PcdDatumType, self._GuidDict)(True)
+                                                except BadExpression, Value:
+                                                    EdkLogger.error('Parser', FORMAT_INVALID, 'PCD [%s.%s] Value "%s",  %s' %
+                                                                    (TokenSpaceGuidCName, TokenCName, pcdvalue, Value))
                                         NewValue = BuildOptionPcdValueFormat(TokenSpaceGuidCName, TokenCName, PcdDatumType, pcdvalue)
                                         FoundFlag = True
                                     else:
@@ -1272,7 +1285,7 @@ class DscBuildData(PlatformBuildClassObject):
 
         # handle pcd value override
         StrPcdSet = self.GetStructurePcdInfo(S_PcdSet)
-        S_pcd_set = {}
+        S_pcd_set = OrderedDict()
         for str_pcd in StrPcdSet:
             str_pcd_obj = Pcds.get((str_pcd[1], str_pcd[0]), None)
             str_pcd_dec = self._DecPcds.get((str_pcd[1], str_pcd[0]), None)
@@ -1291,7 +1304,7 @@ class DscBuildData(PlatformBuildClassObject):
                     str_pcd_obj_str.DefaultFromDSC = {skuname:{defaultstore: str_pcd_obj.SkuInfoList[skuname].DefaultStoreDict.get(defaultstore, str_pcd_obj.SkuInfoList[skuname].DefaultValue) for defaultstore in DefaultStores} for skuname in str_pcd_obj.SkuInfoList}
                 for str_pcd_data in StrPcdSet[str_pcd]:
                     if str_pcd_data[3] in SkuIds:
-                        str_pcd_obj_str.AddOverrideValue(str_pcd_data[2], str(str_pcd_data[6]), 'DEFAULT' if str_pcd_data[3] == 'COMMON' else str_pcd_data[3],'STANDARD' if str_pcd_data[4] == 'COMMON' else str_pcd_data[4], self.MetaFile.File,LineNo=str_pcd_data[5])
+                        str_pcd_obj_str.AddOverrideValue(str_pcd_data[2], str(str_pcd_data[6]), 'DEFAULT' if str_pcd_data[3] == 'COMMON' else str_pcd_data[3],'STANDARD' if str_pcd_data[4] == 'COMMON' else str_pcd_data[4], self.MetaFile.File if self.WorkspaceDir not in self.MetaFile.File else self.MetaFile.File[len(self.WorkspaceDir) if self.WorkspaceDir.endswith(os.path.sep) else len(self.WorkspaceDir)+1:],LineNo=str_pcd_data[5])
                 S_pcd_set[str_pcd[1], str_pcd[0]] = str_pcd_obj_str
             else:
                 EdkLogger.error('build', PARSER_ERROR,
@@ -1319,12 +1332,15 @@ class DscBuildData(PlatformBuildClassObject):
                     continue
                 nextskuid = self.SkuIdMgr.GetNextSkuId(skuid)
                 NoDefault = False
-                while nextskuid not in stru_pcd.SkuOverrideValues:
-                    if nextskuid == "DEFAULT":
-                        NoDefault = True
-                        break
-                    nextskuid = self.SkuIdMgr.GetNextSkuId(nextskuid)
-                stru_pcd.SkuOverrideValues[skuid] = copy.deepcopy(stru_pcd.SkuOverrideValues[nextskuid]) if not NoDefault else copy.deepcopy({defaultstorename: stru_pcd.DefaultValues for defaultstorename in DefaultStores} if DefaultStores else {'STANDARD':stru_pcd.DefaultValues})
+                if skuid not in stru_pcd.SkuOverrideValues:
+                    while nextskuid not in stru_pcd.SkuOverrideValues:
+                        if nextskuid == "DEFAULT":
+                            NoDefault = True
+                            break
+                        nextskuid = self.SkuIdMgr.GetNextSkuId(nextskuid)
+                    stru_pcd.SkuOverrideValues[skuid] = copy.deepcopy(stru_pcd.SkuOverrideValues[nextskuid]) if not NoDefault else copy.deepcopy({defaultstorename: stru_pcd.DefaultValues for defaultstorename in DefaultStores} if DefaultStores else {'STANDARD':stru_pcd.DefaultValues})
+                    if not NoDefault:
+                        stru_pcd.ValueChain[(skuid,'')]= (nextskuid,'')
             if stru_pcd.Type in [self._PCD_TYPE_STRING_[MODEL_PCD_DYNAMIC_HII], self._PCD_TYPE_STRING_[MODEL_PCD_DYNAMIC_EX_HII]]:
                 for skuid in SkuIds:
                     nextskuid = skuid
@@ -1343,6 +1359,7 @@ class DscBuildData(PlatformBuildClassObject):
                     for defaultstoreid in DefaultStores:
                         if defaultstoreid not in stru_pcd.SkuOverrideValues[skuid]:
                             stru_pcd.SkuOverrideValues[skuid][defaultstoreid] = copy.deepcopy(stru_pcd.SkuOverrideValues[nextskuid][mindefaultstorename])
+                            stru_pcd.ValueChain[(skuid,defaultstoreid)]= (nextskuid,mindefaultstorename)
         S_pcd_set = self.OverrideByFdfComm(S_pcd_set)
         Str_Pcd_Values = self.GenerateByteArrayValue(S_pcd_set)
         if Str_Pcd_Values:
@@ -1550,8 +1567,205 @@ class DscBuildData(PlatformBuildClassObject):
         Result = Result + '"'
         return Result
 
-    def GenerateInitializeFunc(self, SkuName, DefaultStoreName, Pcd, InitByteValue, CApp):
-        OverrideValues = {DefaultStoreName:""}
+    def GenerateSizeFunction(self,Pcd):
+        CApp = "// Default Value in Dec \n"
+        CApp = CApp + "void Cal_%s_%s_Size(UINT32 *Size){\n" % (Pcd.TokenSpaceGuidCName, Pcd.TokenCName)
+        for FieldList in [Pcd.DefaultValues]:
+            if not FieldList:
+                continue
+            for FieldName in FieldList:
+                FieldName = "." + FieldName
+                IsArray = self.IsFieldValueAnArray(FieldList[FieldName.strip(".")][0])
+                if IsArray and not (FieldList[FieldName.strip(".")][0].startswith('{GUID') and FieldList[FieldName.strip(".")][0].endswith('}')):
+                    try:
+                        Value = ValueExpressionEx(FieldList[FieldName.strip(".")][0], "VOID*", self._GuidDict)(True)
+                    except BadExpression:
+                        EdkLogger.error('Build', FORMAT_INVALID, "Invalid value format for %s. From %s Line %d " %
+                                        (".".join((Pcd.TokenSpaceGuidCName, Pcd.TokenCName, FieldName.strip('.'))), FieldList[FieldName.strip(".")][1], FieldList[FieldName.strip(".")][2]))
+                    Value, ValueSize = ParseFieldValue(Value)
+                    CApp = CApp + '  __FLEXIBLE_SIZE(*Size, %s, %s, %d / __ARRAY_ELEMENT_SIZE(%s, %s) + ((%d %% __ARRAY_ELEMENT_SIZE(%s, %s)) ? 1 : 0));  // From %s Line %d Value %s \n' % (Pcd.DatumType, FieldName.strip("."), ValueSize, Pcd.DatumType, FieldName.strip("."), ValueSize, Pcd.DatumType, FieldName.strip("."), FieldList[FieldName.strip(".")][1], FieldList[FieldName.strip(".")][2], FieldList[FieldName.strip(".")][0]);
+                else:
+                    NewFieldName = ''
+                    FieldName_ori = FieldName.strip('.')
+                    while '[' in  FieldName:
+                        NewFieldName = NewFieldName + FieldName.split('[', 1)[0] + '[0]'
+                        ArrayIndex = int(FieldName.split('[', 1)[1].split(']', 1)[0])
+                        FieldName = FieldName.split(']', 1)[1]
+                    FieldName = NewFieldName + FieldName
+                    while '[' in FieldName:
+                        FieldName = FieldName.rsplit('[', 1)[0]
+                        CApp = CApp + '  __FLEXIBLE_SIZE(*Size, %s, %s, %d); // From %s Line %d Value %s\n' % (Pcd.DatumType, FieldName.strip("."), ArrayIndex + 1, FieldList[FieldName_ori][1], FieldList[FieldName_ori][2], FieldList[FieldName_ori][0])
+        for skuname in Pcd.SkuOverrideValues:
+            if skuname == "COMMON":
+                continue
+            for defaultstorenameitem in Pcd.SkuOverrideValues[skuname]:
+                CApp = CApp + "// SkuName: %s,  DefaultStoreName: %s \n" % (skuname, defaultstorenameitem)
+                for FieldList in [Pcd.SkuOverrideValues[skuname].get(defaultstorenameitem)]:
+                    if not FieldList:
+                        continue
+                    for FieldName in FieldList:
+                        FieldName = "." + FieldName
+                        IsArray = self.IsFieldValueAnArray(FieldList[FieldName.strip(".")][0])
+                        if IsArray and not (FieldList[FieldName.strip(".")][0].startswith('{GUID') and FieldList[FieldName.strip(".")][0].endswith('}')):
+                            try:
+                                Value = ValueExpressionEx(FieldList[FieldName.strip(".")][0], "VOID*", self._GuidDict)(True)
+                            except BadExpression:
+                                EdkLogger.error('Build', FORMAT_INVALID, "Invalid value format for %s. From %s Line %d " %
+                                                (".".join((Pcd.TokenSpaceGuidCName, Pcd.TokenCName, FieldName.strip('.'))), FieldList[FieldName.strip(".")][1], FieldList[FieldName.strip(".")][2]))
+                            Value, ValueSize = ParseFieldValue(Value)
+                            CApp = CApp + '  __FLEXIBLE_SIZE(*Size, %s, %s, %d / __ARRAY_ELEMENT_SIZE(%s, %s) + ((%d %% __ARRAY_ELEMENT_SIZE(%s, %s)) ? 1 : 0)); // From %s Line %d Value %s\n' % (Pcd.DatumType, FieldName.strip("."), ValueSize, Pcd.DatumType, FieldName.strip("."), ValueSize, Pcd.DatumType, FieldName.strip("."), FieldList[FieldName.strip(".")][1], FieldList[FieldName.strip(".")][2], FieldList[FieldName.strip(".")][0]);
+                        else:
+                            NewFieldName = ''
+                            FieldName_ori = FieldName.strip('.')
+                            while '[' in  FieldName:
+                                NewFieldName = NewFieldName + FieldName.split('[', 1)[0] + '[0]'
+                                ArrayIndex = int(FieldName.split('[', 1)[1].split(']', 1)[0])
+                                FieldName = FieldName.split(']', 1)[1]
+                            FieldName = NewFieldName + FieldName
+                            while '[' in FieldName:
+                                FieldName = FieldName.rsplit('[', 1)[0]
+                                CApp = CApp + '  __FLEXIBLE_SIZE(*Size, %s, %s, %d); // From %s Line %d Value %s \n' % (Pcd.DatumType, FieldName.strip("."), ArrayIndex + 1, FieldList[FieldName_ori][1], FieldList[FieldName_ori][2], FieldList[FieldName_ori][0])
+        CApp = CApp + "}\n"
+        return CApp
+    def GenerateSizeStatments(self,Pcd):
+        CApp = '  Size = sizeof(%s);\n' % (Pcd.DatumType)
+        CApp = CApp + '  Cal_%s_%s_Size(&Size);\n' % (Pcd.TokenSpaceGuidCName, Pcd.TokenCName)
+        return CApp
+    def GenerateDefaultValueAssignFunction(self,Pcd):
+        CApp = "// Default value in Dec \n"
+        CApp = CApp + "void Assign_%s_%s_Default_Value(%s *Pcd){\n" % (Pcd.TokenSpaceGuidCName, Pcd.TokenCName,Pcd.DatumType)
+        CApp = CApp + '  UINT32  FieldSize;\n'
+        CApp = CApp + '  CHAR8   *Value;\n'
+        DefaultValueFromDec = Pcd.DefaultValueFromDec
+        IsArray = self.IsFieldValueAnArray(Pcd.DefaultValueFromDec)
+        if IsArray:
+            try:
+                DefaultValueFromDec = ValueExpressionEx(Pcd.DefaultValueFromDec, "VOID*")(True)
+            except BadExpression:
+                EdkLogger.error("Build", FORMAT_INVALID, "Invalid value format for %s.%s, from DEC: %s" %
+                                (Pcd.TokenSpaceGuidCName, Pcd.TokenCName, DefaultValueFromDec))
+        Value, ValueSize = ParseFieldValue (DefaultValueFromDec)
+        if isinstance(Value, str):
+            CApp = CApp + '  Pcd = %s; // From DEC Default Value %s\n' % (Value, Pcd.DefaultValueFromDec)
+        elif IsArray:
+        #
+        # Use memcpy() to copy value into field
+        #
+            CApp = CApp + '  Value     = %s; // From DEC Default Value %s\n' % (self.IntToCString(Value, ValueSize), Pcd.DefaultValueFromDec)
+            CApp = CApp + '  memcpy (Pcd, Value, %d);\n' % (ValueSize)
+        for FieldList in [Pcd.DefaultValues]:
+            if not FieldList:
+                continue
+            for FieldName in FieldList:
+                IsArray = self.IsFieldValueAnArray(FieldList[FieldName][0])
+                if IsArray:
+                    try:
+                        FieldList[FieldName][0] = ValueExpressionEx(FieldList[FieldName][0], "VOID*", self._GuidDict)(True)
+                    except BadExpression:
+                        EdkLogger.error('Build', FORMAT_INVALID, "Invalid value format for %s. From %s Line %d " %
+                                        (".".join((Pcd.TokenSpaceGuidCName, Pcd.TokenCName, FieldName)), FieldList[FieldName][1],FieldList[FieldName][2]))
+
+                try:
+                    Value, ValueSize = ParseFieldValue (FieldList[FieldName][0])
+                except Exception:
+                    EdkLogger.error('Build', FORMAT_INVALID, "Invalid value format for %s. From %s Line %d " % (".".join((Pcd.TokenSpaceGuidCName,Pcd.TokenCName,FieldName)),FieldList[FieldName][1], FieldList[FieldName][2]))
+                if isinstance(Value, str):
+                    CApp = CApp + '  Pcd->%s = %s; // From %s Line %d Value %s\n' % (FieldName, Value, FieldList[FieldName][1], FieldList[FieldName][2], FieldList[FieldName][0])
+                elif IsArray:
+                    #
+                    # Use memcpy() to copy value into field
+                    #
+                    CApp = CApp + '  FieldSize = __FIELD_SIZE(%s, %s);\n' % (Pcd.DatumType, FieldName)
+                    CApp = CApp + '  Value     = %s; // From %s Line %d Value %s\n' % (self.IntToCString(Value, ValueSize), FieldList[FieldName][1], FieldList[FieldName][2], FieldList[FieldName][0])
+                    CApp = CApp + '  memcpy (&Pcd->%s, Value, (FieldSize > 0 && FieldSize < %d) ? FieldSize : %d);\n' % (FieldName, ValueSize, ValueSize)
+                else:
+                    if ValueSize > 4:
+                        CApp = CApp + '  Pcd->%s = %dULL; // From %s Line %d Value %s\n' % (FieldName, Value, FieldList[FieldName][1], FieldList[FieldName][2], FieldList[FieldName][0])
+                    else:
+                        CApp = CApp + '  Pcd->%s = %d; // From %s Line %d Value %s\n' % (FieldName, Value, FieldList[FieldName][1], FieldList[FieldName][2], FieldList[FieldName][0])
+        CApp = CApp + "}\n"
+        return CApp
+    def GenerateDefaultValueAssignStatement(self,Pcd):
+        CApp = '  Assign_%s_%s_Default_Value(Pcd);\n' % (Pcd.TokenSpaceGuidCName, Pcd.TokenCName)
+        return CApp
+    def GenerateInitValueFunction(self,Pcd,SkuName,DefaultStoreName):
+        CApp = "// Value in Dsc for Sku: %s, DefaultStore %s\n" % (SkuName,DefaultStoreName)
+        CApp = CApp + "void Assign_%s_%s_%s_%s_Value(%s *Pcd){\n" % (Pcd.TokenSpaceGuidCName, Pcd.TokenCName,SkuName,DefaultStoreName,Pcd.DatumType)
+        CApp = CApp + '  UINT32  FieldSize;\n'
+        CApp = CApp + '  CHAR8   *Value;\n'
+
+        CApp = CApp + "// SkuName: %s,  DefaultStoreName: %s \n" % ('DEFAULT', 'STANDARD')
+        inherit_OverrideValues = Pcd.SkuOverrideValues[SkuName]
+        if (SkuName,DefaultStoreName) == ('DEFAULT','STANDARD'):
+            pcddefaultvalue = Pcd.DefaultFromDSC.get('DEFAULT',{}).get('STANDARD', Pcd.DefaultValue) if Pcd.DefaultFromDSC else Pcd.DefaultValue
+        else:
+            pcddefaultvalue = Pcd.DscRawValue.get(SkuName,{}).get(DefaultStoreName)
+        for FieldList in [pcddefaultvalue,inherit_OverrideValues.get(DefaultStoreName)]:
+            if not FieldList:
+                continue
+            if pcddefaultvalue and FieldList == pcddefaultvalue:
+                IsArray = self.IsFieldValueAnArray(FieldList)
+                if IsArray:
+                    try:
+                        FieldList = ValueExpressionEx(FieldList, "VOID*")(True)
+                    except BadExpression:
+                        EdkLogger.error("Build", FORMAT_INVALID, "Invalid value format for %s.%s, from DSC: %s" %
+                                        (Pcd.TokenSpaceGuidCName, Pcd.TokenCName, FieldList))
+                Value, ValueSize = ParseFieldValue (FieldList)
+
+                if (SkuName,DefaultStoreName) == ('DEFAULT','STANDARD'):
+                    if isinstance(Value, str):
+                        CApp = CApp + '  Pcd = %s; // From DSC Default Value %s\n' % (Value, Pcd.DefaultFromDSC.get('DEFAULT',{}).get('STANDARD', Pcd.DefaultValue) if Pcd.DefaultFromDSC else Pcd.DefaultValue)
+                    elif IsArray:
+                    #
+                    # Use memcpy() to copy value into field
+                    #
+                        CApp = CApp + '  Value     = %s; // From DSC Default Value %s\n' % (self.IntToCString(Value, ValueSize), Pcd.DefaultFromDSC.get('DEFAULT',{}).get('STANDARD', Pcd.DefaultValue) if Pcd.DefaultFromDSC else Pcd.DefaultValue)
+                        CApp = CApp + '  memcpy (Pcd, Value, %d);\n' % (ValueSize)
+                else:
+                    if isinstance(Value, str):
+                        CApp = CApp + '  Pcd = %s; // From DSC Default Value %s\n' % (Value, Pcd.DscRawValue.get(SkuName,{}).get(DefaultStoreName))
+                    elif IsArray:
+                    #
+                    # Use memcpy() to copy value into field
+                    #
+                        CApp = CApp + '  Value     = %s; // From DSC Default Value %s\n' % (self.IntToCString(Value, ValueSize), Pcd.DscRawValue.get(SkuName,{}).get(DefaultStoreName))
+                        CApp = CApp + '  memcpy (Pcd, Value, %d);\n' % (ValueSize)
+                continue
+            if (SkuName,DefaultStoreName) == ('DEFAULT','STANDARD') or (( (SkuName,'') not in Pcd.ValueChain) and ( (SkuName,DefaultStoreName) not in Pcd.ValueChain )):
+                for FieldName in FieldList:
+                    IsArray = self.IsFieldValueAnArray(FieldList[FieldName][0])
+                    if IsArray:
+                        try:
+                            FieldList[FieldName][0] = ValueExpressionEx(FieldList[FieldName][0], "VOID*", self._GuidDict)(True)
+                        except BadExpression:
+                            EdkLogger.error('Build', FORMAT_INVALID, "Invalid value format for %s. From %s Line %d " %
+                                            (".".join((Pcd.TokenSpaceGuidCName, Pcd.TokenCName, FieldName)), FieldList[FieldName][1], FieldList[FieldName][2]))
+                    try:
+                        Value, ValueSize = ParseFieldValue (FieldList[FieldName][0])
+                    except Exception:
+                        EdkLogger.error('Build', FORMAT_INVALID, "Invalid value format for %s. From %s Line %d " % (".".join((Pcd.TokenSpaceGuidCName,Pcd.TokenCName,FieldName)),FieldList[FieldName][1], FieldList[FieldName][2]))
+                    if isinstance(Value, str):
+                        CApp = CApp + '  Pcd->%s = %s; // From %s Line %d Value %s\n' % (FieldName, Value, FieldList[FieldName][1], FieldList[FieldName][2], FieldList[FieldName][0])
+                    elif IsArray:
+                    #
+                    # Use memcpy() to copy value into field
+                    #
+                        CApp = CApp + '  FieldSize = __FIELD_SIZE(%s, %s);\n' % (Pcd.DatumType, FieldName)
+                        CApp = CApp + '  Value     = %s; // From %s Line %d Value %s\n' % (self.IntToCString(Value, ValueSize), FieldList[FieldName][1], FieldList[FieldName][2], FieldList[FieldName][0])
+                        CApp = CApp + '  memcpy (&Pcd->%s, Value, (FieldSize > 0 && FieldSize < %d) ? FieldSize : %d);\n' % (FieldName, ValueSize, ValueSize)
+                    else:
+                        if ValueSize > 4:
+                            CApp = CApp + '  Pcd->%s = %dULL; // From %s Line %d Value %s\n' % (FieldName, Value, FieldList[FieldName][1], FieldList[FieldName][2], FieldList[FieldName][0])
+                        else:
+                            CApp = CApp + '  Pcd->%s = %d; // From %s Line %d Value %s\n' % (FieldName, Value, FieldList[FieldName][1], FieldList[FieldName][2], FieldList[FieldName][0])
+        CApp = CApp + "}\n"
+        return CApp
+    def GenerateInitValueStatement(self,Pcd,SkuName,DefaultStoreName):
+        CApp = '  Assign_%s_%s_%s_%s_Value(Pcd);\n' % (Pcd.TokenSpaceGuidCName, Pcd.TokenCName,SkuName,DefaultStoreName)
+        return CApp
+    def GenerateInitializeFunc(self, SkuName, DefaultStore, Pcd, InitByteValue, CApp):
+        OverrideValues = {DefaultStore:""}
         if Pcd.SkuOverrideValues:
             OverrideValues = Pcd.SkuOverrideValues[SkuName]
         for DefaultStoreName in OverrideValues.keys():
@@ -1569,7 +1783,7 @@ class DscBuildData(PlatformBuildClassObject):
             CApp = CApp + '\n'
 
             if SkuName in Pcd.SkuInfoList:
-                DefaultValue = Pcd.SkuInfoList[SkuName].DefaultStoreDict.get(DefaultStoreName,Pcd.SkuInfoList[SkuName].HiiDefaultValue) if Pcd.SkuInfoList[SkuName].HiiDefaultValue  else Pcd.SkuInfoList[SkuName].DefaultValue
+                DefaultValue = Pcd.SkuInfoList[SkuName].DefaultStoreDict.get(DefaultStoreName,Pcd.SkuInfoList[SkuName].HiiDefaultValue if Pcd.SkuInfoList[SkuName].HiiDefaultValue  else Pcd.SkuInfoList[SkuName].DefaultValue)
             else:
                 DefaultValue = Pcd.DefaultValue
             PcdDefaultValue = StringToArray(DefaultValue.strip())
@@ -1589,65 +1803,7 @@ class DscBuildData(PlatformBuildClassObject):
             # in a structure.  The size formula for this case is:
             # OFFSET_OF(FlexbleArrayField) + sizeof(FlexibleArray[0]) * (HighestIndex + 1)
             #
-            CApp = CApp + '  Size = sizeof(%s);\n' % (Pcd.DatumType)
-            CApp = CApp + "// Default Value in Dec \n"
-            for FieldList in [Pcd.DefaultValues]:
-                if not FieldList:
-                    continue
-                for FieldName in FieldList:
-                    FieldName = "." + FieldName
-                    IsArray = self.IsFieldValueAnArray(FieldList[FieldName.strip(".")][0])
-                    if IsArray:
-                        try:
-                            Value = ValueExpressionEx(FieldList[FieldName.strip(".")][0], "VOID*", self._GuidDict)(True)
-                        except BadExpression:
-                            EdkLogger.error('Build', FORMAT_INVALID, "Invalid value format for %s. From %s Line %d " %
-                                            (".".join((Pcd.TokenSpaceGuidCName, Pcd.TokenCName, FieldName.strip('.'))), FieldList[FieldName.strip(".")][1], FieldList[FieldName.strip(".")][2]))
-                        Value, ValueSize = ParseFieldValue(Value)
-                        CApp = CApp + '  __FLEXIBLE_SIZE(Size, %s, %s, %d / __ARRAY_ELEMENT_SIZE(%s, %s) + ((%d %% __ARRAY_ELEMENT_SIZE(%s, %s)) ? 1 : 0));  // From %s Line %d Value %s \n' % (Pcd.DatumType, FieldName.strip("."), ValueSize, Pcd.DatumType, FieldName.strip("."), ValueSize, Pcd.DatumType, FieldName.strip("."), FieldList[FieldName.strip(".")][1], FieldList[FieldName.strip(".")][2], FieldList[FieldName.strip(".")][0]);
-                    else:
-                        NewFieldName = ''
-                        FieldName_ori = FieldName.strip('.')
-                        while '[' in  FieldName:
-                            NewFieldName = NewFieldName + FieldName.split('[', 1)[0] + '[0]'
-                            ArrayIndex = int(FieldName.split('[', 1)[1].split(']', 1)[0])
-                            FieldName = FieldName.split(']', 1)[1]
-                        FieldName = NewFieldName + FieldName
-                        while '[' in FieldName:
-                            FieldName = FieldName.rsplit('[', 1)[0]
-                            CApp = CApp + '  __FLEXIBLE_SIZE(Size, %s, %s, %d); // From %s Line %d Value %s\n' % (Pcd.DatumType, FieldName.strip("."), ArrayIndex + 1, FieldList[FieldName_ori][1], FieldList[FieldName_ori][2], FieldList[FieldName_ori][0])
-            for skuname in self.SkuIdMgr.GetSkuChain(SkuName):
-                inherit_OverrideValues = Pcd.SkuOverrideValues[skuname]
-                storeset = [DefaultStoreName] if DefaultStoreName == 'STANDARD' else ['STANDARD', DefaultStoreName]
-                for defaultstorenameitem in storeset:
-                    CApp = CApp + "// SkuName: %s,  DefaultStoreName: %s \n" % (skuname, defaultstorenameitem)
-                    for FieldList in [inherit_OverrideValues.get(defaultstorenameitem)]:
-                        if not FieldList:
-                            continue
-                        for FieldName in FieldList:
-                            FieldName = "." + FieldName
-                            IsArray = self.IsFieldValueAnArray(FieldList[FieldName.strip(".")][0])
-                            if IsArray:
-                                try:
-                                    Value = ValueExpressionEx(FieldList[FieldName.strip(".")][0], "VOID*", self._GuidDict)(True)
-                                except BadExpression:
-                                    EdkLogger.error('Build', FORMAT_INVALID, "Invalid value format for %s. From %s Line %d " %
-                                                    (".".join((Pcd.TokenSpaceGuidCName, Pcd.TokenCName, FieldName.strip('.'))), FieldList[FieldName.strip(".")][1], FieldList[FieldName.strip(".")][2]))
-                                Value, ValueSize = ParseFieldValue(Value)
-                                CApp = CApp + '  __FLEXIBLE_SIZE(Size, %s, %s, %d / __ARRAY_ELEMENT_SIZE(%s, %s) + ((%d %% __ARRAY_ELEMENT_SIZE(%s, %s)) ? 1 : 0)); // From %s Line %d Value %s\n' % (Pcd.DatumType, FieldName.strip("."), ValueSize, Pcd.DatumType, FieldName.strip("."), ValueSize, Pcd.DatumType, FieldName.strip("."), FieldList[FieldName.strip(".")][1], FieldList[FieldName.strip(".")][2], FieldList[FieldName.strip(".")][0]);
-                            else:
-                                NewFieldName = ''
-                                FieldName_ori = FieldName.strip('.')
-                                while '[' in  FieldName:
-                                    NewFieldName = NewFieldName + FieldName.split('[', 1)[0] + '[0]'
-                                    ArrayIndex = int(FieldName.split('[', 1)[1].split(']', 1)[0])
-                                    FieldName = FieldName.split(']', 1)[1]
-                                FieldName = NewFieldName + FieldName
-                                while '[' in FieldName:
-                                    FieldName = FieldName.rsplit('[', 1)[0]
-                                    CApp = CApp + '  __FLEXIBLE_SIZE(Size, %s, %s, %d); // From %s Line %d Value %s \n' % (Pcd.DatumType, FieldName.strip("."), ArrayIndex + 1, FieldList[FieldName_ori][1], FieldList[FieldName_ori][2], FieldList[FieldName_ori][0])
-                if skuname == SkuName:
-                    break
+            CApp = CApp + self.GenerateSizeStatments(Pcd)
 
             #
             # Allocate and zero buffer for the PCD
@@ -1666,92 +1822,19 @@ class DscBuildData(PlatformBuildClassObject):
             #
             # Assign field values in PCD
             #
-            CApp = CApp + "// Default value in Dec \n"
-            for FieldList in [Pcd.DefaultValues]:
-                if not FieldList:
-                    continue
-                for FieldName in FieldList:
-                    IsArray = self.IsFieldValueAnArray(FieldList[FieldName][0])
-                    if IsArray:
-                        try:
-                            FieldList[FieldName][0] = ValueExpressionEx(FieldList[FieldName][0], "VOID*", self._GuidDict)(True)
-                        except BadExpression:
-                            EdkLogger.error('Build', FORMAT_INVALID, "Invalid value format for %s. From %s Line %d " %
-                                            (".".join((Pcd.TokenSpaceGuidCName, Pcd.TokenCName, FieldName)), FieldList[FieldName][1],FieldList[FieldName][2]))
-
-                    try:
-                        Value, ValueSize = ParseFieldValue (FieldList[FieldName][0])
-                    except Exception:
-                        EdkLogger.error('Build', FORMAT_INVALID, "Invalid value format for %s. From %s Line %d " % (".".join((Pcd.TokenSpaceGuidCName,Pcd.TokenCName,FieldName)),FieldList[FieldName][1], FieldList[FieldName][2]))
-                    if isinstance(Value, str):
-                        CApp = CApp + '  Pcd->%s = %s; // From %s Line %d Value %s\n' % (FieldName, Value, FieldList[FieldName][1], FieldList[FieldName][2], FieldList[FieldName][0])
-                    elif IsArray:
-                        #
-                        # Use memcpy() to copy value into field
-                        #
-                        CApp = CApp + '  FieldSize = __FIELD_SIZE(%s, %s);\n' % (Pcd.DatumType, FieldName)
-                        CApp = CApp + '  Value     = %s; // From %s Line %d Value %s\n' % (self.IntToCString(Value, ValueSize), FieldList[FieldName][1], FieldList[FieldName][2], FieldList[FieldName][0])
-                        CApp = CApp + '  memcpy (&Pcd->%s[0], Value, (FieldSize > 0 && FieldSize < %d) ? FieldSize : %d);\n' % (FieldName, ValueSize, ValueSize)
-                    else:
-                        if ValueSize > 4:
-                            CApp = CApp + '  Pcd->%s = %dULL; // From %s Line %d Value %s\n' % (FieldName, Value, FieldList[FieldName][1], FieldList[FieldName][2], FieldList[FieldName][0])
-                        else:
-                            CApp = CApp + '  Pcd->%s = %d; // From %s Line %d Value %s\n' % (FieldName, Value, FieldList[FieldName][1], FieldList[FieldName][2], FieldList[FieldName][0])
-            for skuname in self.SkuIdMgr.GetSkuChain(SkuName):
-                inherit_OverrideValues = Pcd.SkuOverrideValues[skuname]
-                storeset = [DefaultStoreName] if DefaultStoreName == 'STANDARD' else ['STANDARD', DefaultStoreName]
-                for defaultstorenameitem in storeset:
-                    CApp = CApp + "// SkuName: %s,  DefaultStoreName: %s \n" % (skuname, defaultstorenameitem)
-                    pcddefaultvalue = Pcd.DefaultFromDSC.get(skuname,{}).get(defaultstorenameitem, Pcd.DefaultValue) if Pcd.DefaultFromDSC else Pcd.DefaultValue
-                    for FieldList in [pcddefaultvalue,inherit_OverrideValues.get(defaultstorenameitem)]:
-                        if not FieldList:
-                            continue
-                        if pcddefaultvalue and FieldList == pcddefaultvalue:
-                            IsArray = self.IsFieldValueAnArray(FieldList)
-                            if IsArray:
-                                try:
-                                    FieldList = ValueExpressionEx(FieldList, "VOID*")(True)
-                                except BadExpression:
-                                    EdkLogger.error("Build", FORMAT_INVALID, "Invalid value format for %s.%s, from DSC: %s" %
-                                                    (Pcd.TokenSpaceGuidCName, Pcd.TokenCName, FieldList))
-                            Value, ValueSize = ParseFieldValue (FieldList)
-                            if isinstance(Value, str):
-                                CApp = CApp + '  Pcd = %s; // From DSC Default Value %s\n' % (Value, Pcd.DefaultFromDSC.get(skuname,{}).get(defaultstorenameitem, Pcd.DefaultValue) if Pcd.DefaultFromDSC else Pcd.DefaultValue)
-                            elif IsArray:
-                            #
-                            # Use memcpy() to copy value into field
-                            #
-                                CApp = CApp + '  Value     = %s; // From DSC Default Value %s\n' % (self.IntToCString(Value, ValueSize), Pcd.DefaultFromDSC.get(skuname,{}).get(defaultstorenameitem, Pcd.DefaultValue) if Pcd.DefaultFromDSC else Pcd.DefaultValue)
-                                CApp = CApp + '  memcpy (Pcd, Value, %d);\n' % (ValueSize)
-                            continue
-                        for FieldName in FieldList:
-                            IsArray = self.IsFieldValueAnArray(FieldList[FieldName][0])
-                            if IsArray:
-                                try:
-                                    FieldList[FieldName][0] = ValueExpressionEx(FieldList[FieldName][0], "VOID*", self._GuidDict)(True)
-                                except BadExpression:
-                                    EdkLogger.error('Build', FORMAT_INVALID, "Invalid value format for %s. From %s Line %d " %
-                                                    (".".join((Pcd.TokenSpaceGuidCName, Pcd.TokenCName, FieldName)), FieldList[FieldName][1], FieldList[FieldName][2]))
-                            try:
-                                Value, ValueSize = ParseFieldValue (FieldList[FieldName][0])
-                            except Exception:
-                                EdkLogger.error('Build', FORMAT_INVALID, "Invalid value format for %s. From %s Line %d " % (".".join((Pcd.TokenSpaceGuidCName,Pcd.TokenCName,FieldName)),FieldList[FieldName][1], FieldList[FieldName][2]))
-                            if isinstance(Value, str):
-                                CApp = CApp + '  Pcd->%s = %s; // From %s Line %d Value %s\n' % (FieldName, Value, FieldList[FieldName][1], FieldList[FieldName][2], FieldList[FieldName][0])
-                            elif IsArray:
-                            #
-                            # Use memcpy() to copy value into field
-                            #
-                                CApp = CApp + '  FieldSize = __FIELD_SIZE(%s, %s);\n' % (Pcd.DatumType, FieldName)
-                                CApp = CApp + '  Value     = %s; // From %s Line %d Value %s\n' % (self.IntToCString(Value, ValueSize), FieldList[FieldName][1], FieldList[FieldName][2], FieldList[FieldName][0])
-                                CApp = CApp + '  memcpy (&Pcd->%s[0], Value, (FieldSize > 0 && FieldSize < %d) ? FieldSize : %d);\n' % (FieldName, ValueSize, ValueSize)
-                            else:
-                                if ValueSize > 4:
-                                    CApp = CApp + '  Pcd->%s = %dULL; // From %s Line %d Value %s\n' % (FieldName, Value, FieldList[FieldName][1], FieldList[FieldName][2], FieldList[FieldName][0])
-                                else:
-                                    CApp = CApp + '  Pcd->%s = %d; // From %s Line %d Value %s\n' % (FieldName, Value, FieldList[FieldName][1], FieldList[FieldName][2], FieldList[FieldName][0])
-                if skuname == SkuName:
-                    break
+            CApp = CApp + self.GenerateDefaultValueAssignStatement(Pcd)
+            if Pcd.Type not in [self._PCD_TYPE_STRING_[MODEL_PCD_FIXED_AT_BUILD],
+                        self._PCD_TYPE_STRING_[MODEL_PCD_PATCHABLE_IN_MODULE]]:
+                for skuname in self.SkuIdMgr.GetSkuChain(SkuName):
+                    storeset = [DefaultStoreName] if DefaultStoreName == 'STANDARD' else ['STANDARD', DefaultStoreName]
+                    for defaultstorenameitem in storeset:
+                        CApp = CApp + "// SkuName: %s,  DefaultStoreName: %s \n" % (skuname, defaultstorenameitem)
+                        CApp = CApp + self.GenerateInitValueStatement(Pcd,skuname,defaultstorenameitem)
+                    if skuname == SkuName:
+                        break
+            else:
+                CApp = CApp + "// SkuName: DEFAULT,  DefaultStoreName: STANDARD \n"
+                CApp = CApp + self.GenerateInitValueStatement(Pcd,"DEFAULT","STANDARD")
             #
             # Set new PCD value and size
             #
@@ -1783,10 +1866,21 @@ class DscBuildData(PlatformBuildClassObject):
                     Includes[IncludeFile] = True
                     CApp = CApp + '#include <%s>\n' % (IncludeFile)
         CApp = CApp + '\n'
-
         for PcdName in StructuredPcds:
             Pcd = StructuredPcds[PcdName]
-            if not Pcd.SkuOverrideValues:
+            CApp = CApp + self.GenerateSizeFunction(Pcd)
+            CApp = CApp + self.GenerateDefaultValueAssignFunction(Pcd)
+            if not Pcd.SkuOverrideValues or Pcd.Type in [self._PCD_TYPE_STRING_[MODEL_PCD_FIXED_AT_BUILD],
+                        self._PCD_TYPE_STRING_[MODEL_PCD_PATCHABLE_IN_MODULE]]:
+                CApp = CApp + self.GenerateInitValueFunction(Pcd,self.SkuIdMgr.SystemSkuId, 'STANDARD')
+            else:
+                for SkuName in self.SkuIdMgr.SkuOverrideOrder():
+                    if SkuName not in Pcd.SkuOverrideValues:
+                        continue
+                    for DefaultStoreName in Pcd.SkuOverrideValues[SkuName]:
+                        CApp = CApp + self.GenerateInitValueFunction(Pcd,SkuName,DefaultStoreName)
+            if not Pcd.SkuOverrideValues or Pcd.Type in [self._PCD_TYPE_STRING_[MODEL_PCD_FIXED_AT_BUILD],
+                        self._PCD_TYPE_STRING_[MODEL_PCD_PATCHABLE_IN_MODULE]]:
                 InitByteValue, CApp = self.GenerateInitializeFunc(self.SkuIdMgr.SystemSkuId, 'STANDARD', Pcd, InitByteValue, CApp)
             else:
                 for SkuName in self.SkuIdMgr.SkuOverrideOrder():
@@ -1802,7 +1896,7 @@ class DscBuildData(PlatformBuildClassObject):
         CApp = CApp + '  )\n'
         CApp = CApp + '{\n'
         for Pcd in StructuredPcds.values():
-            if not Pcd.SkuOverrideValues:
+            if not Pcd.SkuOverrideValues or Pcd.Type in [self._PCD_TYPE_STRING_[MODEL_PCD_FIXED_AT_BUILD],self._PCD_TYPE_STRING_[MODEL_PCD_PATCHABLE_IN_MODULE]]:
                 CApp = CApp + '  Initialize_%s_%s_%s_%s();\n' % (self.SkuIdMgr.SystemSkuId, 'STANDARD', Pcd.TokenSpaceGuidCName, Pcd.TokenCName)
             else:
                 for SkuName in self.SkuIdMgr.SkuOverrideOrder():
@@ -1817,13 +1911,11 @@ class DscBuildData(PlatformBuildClassObject):
         if not os.path.exists(self.OutputPath):
             os.makedirs(self.OutputPath)
         CAppBaseFileName = os.path.join(self.OutputPath, PcdValueInitName)
-        File = open (CAppBaseFileName + '.c', 'w')
-        File.write(CApp)
-        File.close()
+        SaveFileOnChange(CAppBaseFileName + '.c', CApp, False)
 
         MakeApp = PcdMakefileHeader
         if sys.platform == "win32":
-            MakeApp = MakeApp + 'ARCH = IA32\nAPPNAME = %s\n' % (PcdValueInitName) + 'OBJECTS = %s\%s.obj\n' % (self.OutputPath, PcdValueInitName) + 'INC = '
+            MakeApp = MakeApp + 'APPNAME = %s\n' % (PcdValueInitName) + 'OBJECTS = %s\%s.obj\n' % (self.OutputPath, PcdValueInitName) + 'INC = '
         else:
             MakeApp = MakeApp + PcdGccMakefile
             MakeApp = MakeApp + 'APPNAME = %s\n' % (PcdValueInitName) + 'OBJECTS = %s/%s.o\n' % (self.OutputPath, PcdValueInitName) + \
@@ -1835,7 +1927,7 @@ class DscBuildData(PlatformBuildClassObject):
                 continue
             if Cache.Includes:
                 if str(Cache.MetaFile.Path) not in PlatformInc:
-                    PlatformInc[str(Cache.MetaFile.Path)] = Cache.Includes
+                    PlatformInc[str(Cache.MetaFile.Path)] = Cache.CommonIncludes
 
         PcdDependDEC = []
         for Pcd in StructuredPcds.values():
@@ -1899,80 +1991,78 @@ class DscBuildData(PlatformBuildClassObject):
         if sys.platform == "win32":
             MakeApp = MakeApp + PcdMakefileEnd
         MakeFileName = os.path.join(self.OutputPath, 'Makefile')
-        File = open (MakeFileName, 'w')
-        File.write(MakeApp)
-        File.close()
+        SaveFileOnChange(MakeFileName, MakeApp, False)
 
         InputValueFile = os.path.join(self.OutputPath, 'Input.txt')
         OutputValueFile = os.path.join(self.OutputPath, 'Output.txt')
-        File = open (InputValueFile, 'w')
-        File.write(InitByteValue)
-        File.close()
-
-        Messages = ''
-        if sys.platform == "win32":
-            MakeCommand = 'nmake clean & nmake -f %s' % (MakeFileName)
-            returncode, StdOut, StdErr = self.ExecuteCommand (MakeCommand)
-            Messages = StdOut
-        else:
-            MakeCommand = 'make clean & make -f %s' % (MakeFileName)
-            returncode, StdOut, StdErr = self.ExecuteCommand (MakeCommand)
-            Messages = StdErr
-        Messages = Messages.split('\n')
-        MessageGroup = []
-        if returncode <>0:
-            CAppBaseFileName = os.path.join(self.OutputPath, PcdValueInitName)
-            File = open (CAppBaseFileName + '.c', 'r')
-            FileData = File.readlines()
-            File.close()
-            for Message in Messages:
-                if " error" in Message or "warning" in Message:
-                    FileInfo = Message.strip().split('(')
-                    if len (FileInfo) > 1:
-                        FileName = FileInfo [0]
-                        FileLine = FileInfo [1].split (')')[0]
-                    else:
-                        FileInfo = Message.strip().split(':')
-                        FileName = FileInfo [0]
-                        FileLine = FileInfo [1]
-                    if FileLine.isdigit():
-                        error_line = FileData[int (FileLine) - 1]
-                        if r"//" in error_line:
-                            c_line,dsc_line = error_line.split(r"//")
-                        else:
-                            dsc_line = error_line
-                        message_itmes = Message.split(":")
-                        Index = 0
-                        if "PcdValueInit.c" not in Message:
-                            break
-                        else:
-                            for item in message_itmes:
-                                if "PcdValueInit.c" in item:
-                                    Index = message_itmes.index(item)
-                                    message_itmes[Index] = dsc_line.strip()
-                                    break
-                            MessageGroup.append(":".join(message_itmes[Index:]).strip())
-                            continue
-                    else:
-                        MessageGroup.append(Message)
-            if MessageGroup:
-                EdkLogger.error("build", PCD_STRUCTURE_PCD_ERROR, "\n".join(MessageGroup) )
-            else:
-                EdkLogger.error('Build', COMMAND_FAILURE, 'Can not execute command: %s' % MakeCommand)
+        SaveFileOnChange(InputValueFile, InitByteValue, False)
 
         PcdValueInitExe = PcdValueInitName
         if not sys.platform == "win32":
             PcdValueInitExe = os.path.join(os.getenv("EDK_TOOLS_PATH"), 'Source', 'C', 'bin', PcdValueInitName)
-
-        Command = PcdValueInitExe + ' -i %s -o %s' % (InputValueFile, OutputValueFile)
-        returncode, StdOut, StdErr = self.ExecuteCommand (Command)
-        if returncode <> 0:
-            EdkLogger.warn('Build', COMMAND_FAILURE, 'Can not collect output from command: %s' % Command)
-            FileBuffer = []
         else:
-            File = open (OutputValueFile, 'r')
-            FileBuffer = File.readlines()
-            File.close()
+            PcdValueInitExe = os.path.join(os.getenv("EDK_TOOLS_PATH"), 'Bin', 'Win32', PcdValueInitName) +".exe"
+        if not os.path.exists(PcdValueInitExe) or self.NeedUpdateOutput(OutputValueFile, CAppBaseFileName + '.c',MakeFileName,InputValueFile):
+            Messages = ''
+            if sys.platform == "win32":
+                MakeCommand = 'nmake clean & nmake -f %s' % (MakeFileName)
+                returncode, StdOut, StdErr = self.ExecuteCommand (MakeCommand)
+                Messages = StdOut
+            else:
+                MakeCommand = 'make clean & make -f %s' % (MakeFileName)
+                returncode, StdOut, StdErr = self.ExecuteCommand (MakeCommand)
+                Messages = StdErr
+            Messages = Messages.split('\n')
+            MessageGroup = []
+            if returncode <>0:
+                CAppBaseFileName = os.path.join(self.OutputPath, PcdValueInitName)
+                File = open (CAppBaseFileName + '.c', 'r')
+                FileData = File.readlines()
+                File.close()
+                for Message in Messages:
+                    if " error" in Message or "warning" in Message:
+                        FileInfo = Message.strip().split('(')
+                        if len (FileInfo) > 1:
+                            FileName = FileInfo [0]
+                            FileLine = FileInfo [1].split (')')[0]
+                        else:
+                            FileInfo = Message.strip().split(':')
+                            FileName = FileInfo [0]
+                            FileLine = FileInfo [1]
+                        if FileLine.isdigit():
+                            error_line = FileData[int (FileLine) - 1]
+                            if r"//" in error_line:
+                                c_line,dsc_line = error_line.split(r"//")
+                            else:
+                                dsc_line = error_line
+                            message_itmes = Message.split(":")
+                            Index = 0
+                            if "PcdValueInit.c" not in Message:
+                                if not MessageGroup:
+                                    MessageGroup.append(Message)
+                                break
+                            else:
+                                for item in message_itmes:
+                                    if "PcdValueInit.c" in item:
+                                        Index = message_itmes.index(item)
+                                        message_itmes[Index] = dsc_line.strip()
+                                        break
+                                MessageGroup.append(":".join(message_itmes[Index:]).strip())
+                                continue
+                        else:
+                            MessageGroup.append(Message)
+                if MessageGroup:
+                    EdkLogger.error("build", PCD_STRUCTURE_PCD_ERROR, "\n".join(MessageGroup) )
+                else:
+                    EdkLogger.error('Build', COMMAND_FAILURE, 'Can not execute command: %s' % MakeCommand)
+            Command = PcdValueInitExe + ' -i %s -o %s' % (InputValueFile, OutputValueFile)
+            returncode, StdOut, StdErr = self.ExecuteCommand (Command)
+            if returncode <> 0:
+                EdkLogger.warn('Build', COMMAND_FAILURE, 'Can not collect output from command: %s' % Command)
+
+        File = open (OutputValueFile, 'r')
+        FileBuffer = File.readlines()
+        File.close()
 
         StructurePcdSet = []
         for Pcd in FileBuffer:
@@ -1980,6 +2070,17 @@ class DscBuildData(PlatformBuildClassObject):
             PcdInfo = PcdValue[0].split ('.')
             StructurePcdSet.append((PcdInfo[0],PcdInfo[1], PcdInfo[2], PcdInfo[3], PcdValue[2].strip()))
         return StructurePcdSet
+
+    def NeedUpdateOutput(self,OutputFile, ValueCFile, MakeFile, StructureInput):
+        if not os.path.exists(OutputFile):
+            return True
+        if os.stat(OutputFile).st_mtime <= os.stat(ValueCFile).st_mtime:
+            return True
+        if os.stat(OutputFile).st_mtime <= os.stat(MakeFile).st_mtime:
+            return True
+        if os.stat(OutputFile).st_mtime <= os.stat(StructureInput).st_mtime:
+            return True
+        return False
 
     ## Retrieve dynamic PCD settings
     #
@@ -2094,6 +2195,16 @@ class DscBuildData(PlatformBuildClassObject):
             return True
         else:
             return False
+    def CopyDscRawValue(self,Pcd):
+        if Pcd.DscRawValue is None:
+            Pcd.DscRawValue = dict()
+        for skuname in Pcd.SkuInfoList:
+            Pcd.DscRawValue[skuname] = {}
+            if Pcd.Type in [self._PCD_TYPE_STRING_[MODEL_PCD_DYNAMIC_HII], self._PCD_TYPE_STRING_[MODEL_PCD_DYNAMIC_EX_HII]]:
+                for defaultstore in Pcd.SkuInfoList[skuname].DefaultStoreDict:
+                    Pcd.DscRawValue[skuname][defaultstore] = Pcd.SkuInfoList[skuname].DefaultStoreDict[defaultstore]
+            else:
+                Pcd.DscRawValue[skuname]['STANDARD'] = Pcd.SkuInfoList[skuname].DefaultValue
     def CompletePcdValues(self,PcdSet):
         Pcds = {}
         DefaultStoreObj = DefaultStore(self._GetDefaultStores())
@@ -2109,6 +2220,7 @@ class DscBuildData(PlatformBuildClassObject):
                         self._PCD_TYPE_STRING_[MODEL_PCD_DYNAMIC_EX_VPD]]:
                 Pcds[PcdCName, TokenSpaceGuid]= PcdObj
                 continue
+            self.CopyDscRawValue(PcdObj)
             PcdType = PcdObj.Type
             if PcdType in [self._PCD_TYPE_STRING_[MODEL_PCD_DYNAMIC_HII], self._PCD_TYPE_STRING_[MODEL_PCD_DYNAMIC_EX_HII]]:
                 for skuid in PcdObj.SkuInfoList:
