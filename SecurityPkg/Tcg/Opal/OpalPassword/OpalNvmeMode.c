@@ -1,7 +1,7 @@
 /** @file
   Provide functions to initialize NVME controller and perform NVME commands
 
-Copyright (c) 2016 - 2017, Intel Corporation. All rights reserved.<BR>
+Copyright (c) 2016 - 2018, Intel Corporation. All rights reserved.<BR>
 This program and the accompanying materials
 are licensed and made available under the terms and conditions of the BSD License
 which accompanies this distribution.  The full text of the license may be found at
@@ -12,7 +12,7 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 
 **/
 
-#include "OpalPasswordSmm.h"
+#include "OpalPasswordPei.h"
 
 
 #define ALIGN(v, a)                         (UINTN)((((v) - 1) | ((a) - 1)) + 1)
@@ -1535,60 +1535,46 @@ NvmeDestroyIoSubmissionQueue (
 /**
   Allocate transfer-related Data struct which is used at Nvme.
 
-  @param[in] ImageHandle         Image handle for this driver image
-  @param[in] Nvme                The pointer to the NVME_CONTEXT Data structure.
+  @param[in, out] Nvme          The pointer to the NVME_CONTEXT Data structure.
 
-  @retval  EFI_OUT_OF_RESOURCE   The allocation is failure.
-  @retval  EFI_SUCCESS           Successful to allocate memory.
+  @retval EFI_OUT_OF_RESOURCE   No enough resource.
+  @retval EFI_SUCCESS           Successful to allocate resource.
 
 **/
 EFI_STATUS
 EFIAPI
 NvmeAllocateResource (
-  IN EFI_HANDLE                         ImageHandle,
-  IN NVME_CONTEXT                       *Nvme
+  IN OUT NVME_CONTEXT       *Nvme
   )
 {
-  EFI_STATUS            Status;
-  EFI_PHYSICAL_ADDRESS  Addr;
-  UINT32                Size;
+  EFI_STATUS                Status;
+  EFI_PHYSICAL_ADDRESS      DeviceAddress;
+  VOID                      *Base;
+  VOID                      *Mapping;
 
   //
-  // Allocate resources required by NVMe host controller.
+  // Allocate resources for DMA.
   //
-  // NBAR
-  Size = 0x10000;
-  Addr = 0xFFFFFFFF;
-  Status = gDS->AllocateMemorySpace (
-                  EfiGcdAllocateMaxAddressSearchBottomUp,
-                  EfiGcdMemoryTypeMemoryMappedIo,
-                  15,                             // 2^15: 32K Alignment
-                  Size,
-                  &Addr,
-                  ImageHandle,
-                  NULL
-                  );
+  Status = IoMmuAllocateBuffer (
+             EFI_SIZE_TO_PAGES (NVME_MEM_MAX_SIZE),
+             &Base,
+             &DeviceAddress,
+             &Mapping
+             );
   if (EFI_ERROR (Status)) {
     return EFI_OUT_OF_RESOURCES;
   }
-  Nvme->Nbar = (UINT32) Addr;
+  ASSERT (DeviceAddress == ((EFI_PHYSICAL_ADDRESS) (UINTN) Base));
+  Nvme->BaseMemMapping = Mapping;
+  Nvme->BaseMem = Base;
+  ZeroMem (Nvme->BaseMem, EFI_PAGE_SIZE * EFI_SIZE_TO_PAGES (NVME_MEM_MAX_SIZE));
 
-  // DMA Buffer
-  Size = NVME_MEM_MAX_SIZE;
-  Addr = 0xFFFFFFFF;
-  Status = gBS->AllocatePages (
-                  AllocateMaxAddress,
-                  EfiACPIMemoryNVS,
-                  EFI_SIZE_TO_PAGES (Size),
-                  (EFI_PHYSICAL_ADDRESS *)&Addr
-                  );
-  if (EFI_ERROR (Status)) {
-    return EFI_OUT_OF_RESOURCES;
-  }
-  Nvme->BaseMem = (UINT32) Addr;
-
-  // Clean up DMA Buffer before using
-  ZeroMem ((VOID *)(UINTN)Addr, NVME_MEM_MAX_SIZE);
+  DEBUG ((
+    DEBUG_INFO,
+    "%a() NvmeContext 0x%x\n",
+    __FUNCTION__,
+    Nvme->BaseMem
+    ));
 
   return EFI_SUCCESS;
 }
@@ -1596,30 +1582,24 @@ NvmeAllocateResource (
 /**
   Free allocated transfer-related Data struct which is used at NVMe.
 
-  @param[in] Nvme                The pointer to the NVME_CONTEXT Data structure.
+  @param[in, out] Nvme          The pointer to the NVME_CONTEXT Data structure.
 
 **/
 VOID
 EFIAPI
 NvmeFreeResource (
-  IN NVME_CONTEXT                       *Nvme
+  IN OUT NVME_CONTEXT       *Nvme
   )
 {
-  UINT32                Size;
-
-  // NBAR
-  if (Nvme->BaseMem != 0) {
-    Size = 0x10000;
-    gDS->FreeMemorySpace (Nvme->Nbar, Size);
-  }
-
-  // DMA Buffer
-  if (Nvme->Nbar != 0) {
-    Size = NVME_MEM_MAX_SIZE;
-    gBS->FreePages ((EFI_PHYSICAL_ADDRESS)(UINTN) Nvme->Nbar, EFI_SIZE_TO_PAGES (Size));
+  if (Nvme->BaseMem != NULL) {
+    IoMmuFreeBuffer (
+       EFI_SIZE_TO_PAGES (NVME_MEM_MAX_SIZE),
+       Nvme->BaseMem,
+       Nvme->BaseMemMapping
+       );
+    Nvme->BaseMem = NULL;
   }
 }
-
 
 /**
   Initialize the Nvm Express controller.
@@ -1697,7 +1677,7 @@ NvmeControllerInit (
   ZeroMem ((VOID *)(UINTN)(&(Nvme->SqTdbl[0])), sizeof (NVME_SQTDBL) * NVME_MAX_IO_QUEUES);
   ZeroMem ((VOID *)(UINTN)(&(Nvme->CqHdbl[0])), sizeof (NVME_CQHDBL) * NVME_MAX_IO_QUEUES);
 
-  ZeroMem ((VOID *)(UINTN)Nvme->BaseMem, NVME_MEM_MAX_SIZE);
+  ZeroMem (Nvme->BaseMem, NVME_MEM_MAX_SIZE);
 
   Status = NvmeDisableController (Nvme);
   if (EFI_ERROR(Status)) {
@@ -1731,7 +1711,6 @@ NvmeControllerInit (
   Nvme->SqBuffer[1] = (NVME_SQ *)(UINTN)NVME_SQ_BASE (Nvme, 0); // NVME_IO_QUEUE
   Nvme->CqBuffer[1] = (NVME_CQ *)(UINTN)NVME_CQ_BASE (Nvme, 0); // NVME_IO_QUEUE
 
-  DEBUG ((DEBUG_INFO, "BaseMem = [%08X]\n", Nvme->BaseMem));
   DEBUG ((DEBUG_INFO, "Admin Submission Queue Size (Aqa.Asqs) = [%08X]\n", Aqa.Asqs));
   DEBUG ((DEBUG_INFO, "Admin Completion Queue Size (Aqa.Acqs) = [%08X]\n", Aqa.Acqs));
   DEBUG ((DEBUG_INFO, "Admin Submission Queue (SqBuffer[0]) =   [%08X]\n", Nvme->SqBuffer[0]));

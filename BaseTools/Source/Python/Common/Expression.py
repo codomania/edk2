@@ -15,7 +15,7 @@
 from Common.GlobalData import *
 from CommonDataClass.Exceptions import BadExpression
 from CommonDataClass.Exceptions import WrnExpression
-from Misc import GuidStringToGuidStructureString, ParseFieldValue
+from Misc import GuidStringToGuidStructureString, ParseFieldValue, IsFieldValueAnArray
 import Common.EdkLogger as EdkLogger
 import copy
 
@@ -118,6 +118,31 @@ def SplitPcdValueString(String):
     if Item:
         RetList.append(Item)
     return RetList
+
+def IsValidCString(Str):
+    ValidString = re.compile(r'[_a-zA-Z][_0-9a-zA-Z]*$')
+    if not ValidString.match(Str):
+        return False
+    return True
+
+def BuildOptionValue(PcdValue, GuidDict):
+    IsArray = False
+    if PcdValue.startswith('H'):
+        InputValue = PcdValue[1:]
+    elif PcdValue.startswith("L'") or PcdValue.startswith("'"):
+        InputValue = PcdValue
+    elif PcdValue.startswith('L'):
+        InputValue = 'L"' + PcdValue[1:] + '"'
+    else:
+        InputValue = PcdValue
+    if IsFieldValueAnArray(InputValue):
+        IsArray = True
+    if IsArray:
+        try:
+            PcdValue = ValueExpressionEx(InputValue, 'VOID*', GuidDict)(True)
+        except:
+            pass
+    return PcdValue
 
 ## ReplaceExprMacro
 #
@@ -884,14 +909,15 @@ class ValueExpressionEx(ValueExpression):
                         LabelOffset = 0
                         for Index, Item in enumerate(PcdValueList):
                             # compute byte offset of every LABEL
+                            LabelList = ReLabel.findall(Item)
+                            Item = ReLabel.sub('', Item)
                             Item = Item.strip()
-                            try:
-                                LabelList = ReLabel.findall(Item)
+                            if LabelList:
                                 for Label in LabelList:
+                                    if not IsValidCString(Label):
+                                        raise BadExpression('%s is not a valid c variable name' % Label)
                                     if Label not in LabelDict.keys():
                                         LabelDict[Label] = str(LabelOffset)
-                            except:
-                                pass
                             if Item.startswith('UINT8'):
                                 LabelOffset = LabelOffset + 1
                             elif Item.startswith('UINT16'):

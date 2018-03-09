@@ -1,7 +1,7 @@
 /** @file
   Header file for NVMe function definitions
 
-Copyright (c) 2016, Intel Corporation. All rights reserved.<BR>
+Copyright (c) 2016 - 2018, Intel Corporation. All rights reserved.<BR>
 This program and the accompanying materials
 are licensed and made available under the terms and conditions of the BSD License
 which accompanies this distribution.  The full text of the license may be found at
@@ -83,7 +83,8 @@ typedef enum {
 
 typedef struct {
   UINT32                            Nbar;
-  UINT32                            BaseMem;
+  VOID                              *BaseMem;
+  VOID                              *BaseMemMapping;
   BOOLEAN                           PollCancellation;
   UINT16                            NvmeInitWaitTime;
 
@@ -195,30 +196,28 @@ OpalPciRead (
 /**
   Allocate transfer-related Data struct which is used at Nvme.
 
-  @param[in] ImageHandle         Image handle for this driver image
-  @param[in] Nvme                The pointer to the NVME_CONTEXT Data structure.
+  @param[in, out] Nvme          The pointer to the NVME_CONTEXT Data structure.
 
-  @retval  EFI_OUT_OF_RESOURCE   The allocation is failure.
-  @retval  EFI_SUCCESS           Successful to allocate memory.
+  @retval EFI_OUT_OF_RESOURCE   No enough resource.
+  @retval EFI_SUCCESS           Successful to allocate resource.
 
 **/
 EFI_STATUS
 EFIAPI
 NvmeAllocateResource (
-  IN EFI_HANDLE                         ImageHandle,
-  IN NVME_CONTEXT                       *Nvme
+  IN OUT NVME_CONTEXT       *Nvme
   );
 
 /**
   Free allocated transfer-related Data struct which is used at NVMe.
 
-  @param[in] Nvme                The pointer to the NVME_CONTEXT Data structure.
+  @param[in, out] Nvme          The pointer to the NVME_CONTEXT Data structure.
 
 **/
 VOID
 EFIAPI
 NvmeFreeResource (
-  IN NVME_CONTEXT                       *Nvme
+  IN OUT NVME_CONTEXT       *Nvme
   );
 
 /**

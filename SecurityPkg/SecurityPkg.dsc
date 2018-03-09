@@ -73,7 +73,6 @@
   PciExpressLib|MdePkg/Library/BasePciExpressLib/BasePciExpressLib.inf
   TcgStorageCoreLib|SecurityPkg/Library/TcgStorageCoreLib/TcgStorageCoreLib.inf
   TcgStorageOpalLib|SecurityPkg/Library/TcgStorageOpalLib/TcgStorageOpalLib.inf
-  OpalPasswordSupportLib|SecurityPkg/Library/OpalPasswordSupportLib/OpalPasswordSupportLib.inf
   ResetSystemLib|MdeModulePkg/Library/BaseResetSystemLibNull/BaseResetSystemLibNull.inf
 
 [LibraryClasses.common.PEIM]
@@ -204,7 +203,6 @@
   #
   SecurityPkg/Library/TcgStorageCoreLib/TcgStorageCoreLib.inf
   SecurityPkg/Library/TcgStorageOpalLib/TcgStorageOpalLib.inf
-  SecurityPkg/Library/OpalPasswordSupportLib/OpalPasswordSupportLib.inf
 
   #
   # Other
@@ -322,8 +320,8 @@
   #
   # Opal Password solution
   #
-  SecurityPkg/Tcg/Opal/OpalPasswordDxe/OpalPasswordDxe.inf
-  SecurityPkg/Tcg/Opal/OpalPasswordSmm/OpalPasswordSmm.inf
+  SecurityPkg/Tcg/Opal/OpalPassword/OpalPasswordDxe.inf
+  SecurityPkg/Tcg/Opal/OpalPassword/OpalPasswordPei.inf
 
 [Components.IPF]
   SecurityPkg/VariableAuthenticated/EsalVariableDxeSal/EsalVariableDxeSal.inf

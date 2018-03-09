@@ -1,7 +1,7 @@
 /** @file
   Header file for AHCI mode of ATA host controller.
 
-Copyright (c) 2016, Intel Corporation. All rights reserved.<BR>
+Copyright (c) 2016 - 2018, Intel Corporation. All rights reserved.<BR>
 This program and the accompanying materials
 are licensed and made available under the terms and conditions of the BSD License
 which accompanies this distribution.  The full text of the license may be found at
@@ -279,17 +279,24 @@ typedef struct {
 
 typedef struct {
   EFI_AHCI_RECEIVED_FIS     *AhciRFis;
+  VOID                      *AhciRFisMapping;
   EFI_AHCI_COMMAND_LIST     *AhciCmdList;
+  VOID                      *AhciCmdListMapping;
   EFI_AHCI_COMMAND_TABLE    *AhciCommandTable;
+  VOID                      *AhciCommandTableMapping;
 } EFI_AHCI_REGISTERS;
 
-extern EFI_AHCI_REGISTERS   mAhciRegisters;
-extern UINT32               mAhciBar;
+typedef struct {
+  VOID                      *Buffer;
+  VOID                      *BufferMapping;
+  EFI_AHCI_REGISTERS        AhciRegisters;
+  UINT32                    AhciBar;
+} AHCI_CONTEXT;
 
 /**
   Send Buffer cmd to specific device.
 
-  @param  AhciRegisters       The pointer to the EFI_AHCI_REGISTERS.
+  @param  AhciContext         The pointer to the AHCI_CONTEXT.
   @param  Port                The number of port.
   @param  PortMultiplier      The timeout Value of stop.
   @param  Buffer              The Data Buffer to store IDENTIFY PACKET Data.
@@ -303,53 +310,37 @@ extern UINT32               mAhciBar;
 EFI_STATUS
 EFIAPI
 AhciIdentify (
-  IN EFI_AHCI_REGISTERS       *AhciRegisters,
+  IN AHCI_CONTEXT             *AhciContext,
   IN UINT8                    Port,
   IN UINT8                    PortMultiplier,
   IN OUT ATA_IDENTIFY_DATA    *Buffer
   );
 
 /**
-  Get AHCI mode base address registers' Value.
+  Allocate transfer-related data struct which is used at AHCI mode.
 
-  @param[in] Bus         The bus number of ata host controller.
-  @param[in] Device      The device number of ata host controller.
-  @param[in] Function    The function number of ata host controller.
+  @param[in, out] AhciContext   The pointer to the AHCI_CONTEXT.
 
-  @retval EFI_UNSUPPORTED        Return this Value when the BARs is not IO type
-  @retval EFI_SUCCESS            Get the Base address successfully
-  @retval Other                  Read the pci configureation Data error
-
-**/
-EFI_STATUS
-EFIAPI
-GetAhciBaseAddress (
-  IN     UINTN                       Bus,
-  IN     UINTN                       Device,
-  IN     UINTN                       Function
-  );
-
-/**
-  Allocate transfer-related Data struct which is used at AHCI mode.
-
-  @retval  EFI_OUT_OF_RESOURCE   The allocation is failure.
-  @retval  EFI_SUCCESS           Successful to allocate memory.
+  @retval EFI_OUT_OF_RESOURCE   No enough resource.
+  @retval EFI_SUCCESS           Successful to allocate resource.
 
 **/
 EFI_STATUS
 EFIAPI
 AhciAllocateResource (
-  VOID
+  IN OUT AHCI_CONTEXT       *AhciContext
   );
 
 /**
-  Free allocated transfer-related Data struct which is used at AHCI mode.
+  Free allocated transfer-related data struct which is used at AHCI mode.
+
+  @param[in, out] AhciContext   The pointer to the AHCI_CONTEXT.
 
 **/
 VOID
 EFIAPI
 AhciFreeResource (
-  VOID
+  IN OUT AHCI_CONTEXT       *AhciContext
   );
 
 /**
@@ -357,19 +348,55 @@ AhciFreeResource (
 
   The function is designed to initialize ATA host controller.
 
+  @param[in]  AhciContext   The pointer to the AHCI_CONTEXT.
   @param[in]  Port          The port number to do initialization.
 
 **/
 EFI_STATUS
 EFIAPI
 AhciModeInitialize (
-  UINT8      Port
+  IN AHCI_CONTEXT    *AhciContext,
+  IN UINT8           Port
   );
+
+typedef struct _EFI_ATA_COMMAND_BLOCK {
+  UINT8 Reserved1[2];
+  UINT8 AtaCommand;
+  UINT8 AtaFeatures;
+  UINT8 AtaSectorNumber;
+  UINT8 AtaCylinderLow;
+  UINT8 AtaCylinderHigh;
+  UINT8 AtaDeviceHead;
+  UINT8 AtaSectorNumberExp;
+  UINT8 AtaCylinderLowExp;
+  UINT8 AtaCylinderHighExp; 
+  UINT8 AtaFeaturesExp;
+  UINT8 AtaSectorCount;
+  UINT8 AtaSectorCountExp;
+  UINT8 Reserved2[6];
+} EFI_ATA_COMMAND_BLOCK;
+
+typedef struct _EFI_ATA_STATUS_BLOCK {
+  UINT8 Reserved1[2];
+  UINT8 AtaStatus;
+  UINT8 AtaError;
+  UINT8 AtaSectorNumber;
+  UINT8 AtaCylinderLow;
+  UINT8 AtaCylinderHigh;
+  UINT8 AtaDeviceHead;
+  UINT8 AtaSectorNumberExp;
+  UINT8 AtaCylinderLowExp;
+  UINT8 AtaCylinderHighExp; 
+  UINT8 Reserved2;
+  UINT8 AtaSectorCount;
+  UINT8 AtaSectorCountExp;
+  UINT8 Reserved3[6];
+} EFI_ATA_STATUS_BLOCK;
 
 /**
   Start a PIO Data transfer on specific port.
 
-  @param  AhciRegisters       The pointer to the EFI_AHCI_REGISTERS.
+  @param  AhciContext         The pointer to the AHCI_CONTEXT.
   @param  Port                The number of port.
   @param  PortMultiplier      The timeout Value of stop.
   @param  AtapiCommand        The atapi command will be used for the transfer.
@@ -390,7 +417,7 @@ AhciModeInitialize (
 EFI_STATUS
 EFIAPI
 AhciPioTransfer (
-  IN     EFI_AHCI_REGISTERS         *AhciRegisters,
+  IN     AHCI_CONTEXT               *AhciContext,
   IN     UINT8                      Port,
   IN     UINT8                      PortMultiplier,
   IN     EFI_AHCI_ATAPI_COMMAND     *AtapiCommand OPTIONAL,

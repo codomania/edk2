@@ -124,8 +124,6 @@ UsbBootRequestSense (
       Status = EFI_NOT_READY;
     } else if (SenseData.Asc == USB_BOOT_ASC_NO_MEDIA) {
       Status = EFI_NOT_READY;
-    } else if (SenseData.Asc == USB_BOOT_ASC_POWER_ON) {
-      Status = EFI_SUCCESS;
     }
     break;
 
@@ -139,8 +137,9 @@ UsbBootRequestSense (
     break;
   }
 
-  DEBUG ((EFI_D_INFO, "UsbBootRequestSense: (%r) with sense key %x/%x/%x\n",
+  DEBUG ((EFI_D_INFO, "UsbBootRequestSense: (%r) with error code (%x) sense key %x/%x/%x\n",
           Status,
+          SenseData.ErrorCode,
           USB_BOOT_SENSE_KEY (SenseData.SenseKey),
           SenseData.Asc,
           SenseData.Ascq
@@ -198,7 +197,7 @@ UsbBootExecCmd (
                            );
 
   if (Status == EFI_TIMEOUT) {
-    DEBUG ((EFI_D_ERROR, "UsbBootExecCmd: Timeout to Exec 0x%x Cmd\n", *(UINT8 *)Cmd));
+    DEBUG ((EFI_D_ERROR, "UsbBootExecCmd: %r to Exec 0x%x Cmd\n", Status, *(UINT8 *)Cmd));
     return EFI_TIMEOUT;
   }
 
@@ -213,6 +212,7 @@ UsbBootExecCmd (
   //
   // If command execution failed, then retrieve error info via sense request.
   //
+  DEBUG ((EFI_D_ERROR, "UsbBootExecCmd: %r to Exec 0x%x Cmd (Result = %x)\n", Status, *(UINT8 *)Cmd, CmdResult));
   return UsbBootRequestSense (UsbMass);
 }
 
@@ -234,7 +234,7 @@ UsbBootExecCmd (
   @param  Timeout                The timeout used to transfer
 
   @retval EFI_SUCCESS            The command is executed successfully.
-  @retval EFI_MEDIA_CHANGED      The device media has been changed.
+  @retval EFI_NO_MEDIA           The device media is removed.
   @retval Others                 Command execution failed after retrial.
 
 **/
@@ -284,7 +284,7 @@ UsbBootExecCmdWithRetry (
                DataLen,
                Timeout
                );
-    if (Status == EFI_SUCCESS || Status == EFI_MEDIA_CHANGED || Status == EFI_NO_MEDIA) {
+    if (Status == EFI_SUCCESS || Status == EFI_NO_MEDIA) {
       break;
     }
     //
@@ -632,10 +632,8 @@ UsbBootGetParams (
 {
   EFI_BLOCK_IO_MEDIA          *Media;
   EFI_STATUS                  Status;
-  UINT8                       CmdSet;
 
   Media  = &(UsbMass->BlockIoMedia);
-  CmdSet = ((EFI_USB_INTERFACE_DESCRIPTOR *) (UsbMass->Context))->InterfaceSubClass;
 
   Status = UsbBootInquiry (UsbMass);
   if (EFI_ERROR (Status)) {
@@ -670,18 +668,9 @@ UsbBootGetParams (
     Media->BlockSize        = 0x0800;
   }
 
-  if ((UsbMass->Pdt != USB_PDT_CDROM) && (CmdSet == USB_MASS_STORE_SCSI)) {
-    //
-    // ModeSense is required for the device with PDT of 0x00/0x07/0x0E,
-    // which is from [MassStorageBootabilitySpec-Page7].
-    // ModeSense(10) is useless here, while ModeSense(6) defined in SCSI
-    // could get the information of WriteProtected.
-    // Since not all device support this command, so skip if fail.
-    //
-    UsbScsiModeSense (UsbMass);
-  }
+  Status = UsbBootDetectMedia (UsbMass);
 
-  return UsbBootReadCapacity (UsbMass);
+  return Status;
 }
 
 
@@ -702,7 +691,6 @@ UsbBootDetectMedia (
   EFI_BLOCK_IO_MEDIA        OldMedia;
   EFI_BLOCK_IO_MEDIA        *Media;
   UINT8                     CmdSet;
-  EFI_TPL                   OldTpl;
   EFI_STATUS                Status;
 
   Media    = &UsbMass->BlockIoMedia;
@@ -713,29 +701,41 @@ UsbBootDetectMedia (
 
   Status = UsbBootIsUnitReady (UsbMass);
   if (EFI_ERROR (Status)) {
-    goto ON_ERROR;
+    DEBUG ((EFI_D_ERROR, "UsbBootDetectMedia: UsbBootIsUnitReady (%r)\n", Status));
   }
 
-  if ((UsbMass->Pdt != USB_PDT_CDROM) && (CmdSet == USB_MASS_STORE_SCSI)) {
+  //
+  // Status could be:
+  //   EFI_SUCCESS: all good.
+  //   EFI_NO_MEDIA: media is not present.
+  //   others: HW error.
+  // For either EFI_NO_MEDIA, or HW error, skip to get WriteProtected and capacity information.
+  //
+  if (!EFI_ERROR (Status)) {
+    if ((UsbMass->Pdt != USB_PDT_CDROM) && (CmdSet == USB_MASS_STORE_SCSI)) {
+      //
+      // MODE SENSE is required for the device with PDT of 0x00/0x07/0x0E,
+      // according to Section 4 of USB Mass Storage Specification for Bootability.
+      // MODE SENSE(10) is useless here, while MODE SENSE(6) defined in SCSI
+      // could get the information of Write Protected.
+      // Since not all device support this command, skip if fail.
+      //
+      UsbScsiModeSense (UsbMass);
+    }
+
+    Status = UsbBootReadCapacity (UsbMass);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((EFI_D_ERROR, "UsbBootDetectMedia: UsbBootReadCapacity (%r)\n", Status));
+    }
+  }
+
+  if (EFI_ERROR (Status) && Status != EFI_NO_MEDIA) {
     //
-    // MODE SENSE is required for the device with PDT of 0x00/0x07/0x0E,
-    // according to Section 4 of USB Mass Storage Specification for Bootability.
-    // MODE SENSE(10) is useless here, while MODE SENSE(6) defined in SCSI
-    // could get the information of Write Protected.
-    // Since not all device support this command, skip if fail.
+    // For NoMedia, BlockIo is still needed.
     //
-    UsbScsiModeSense (UsbMass);
+    return Status;
   }
 
-  Status = UsbBootReadCapacity (UsbMass);
-  if (EFI_ERROR (Status)) {
-    DEBUG ((EFI_D_ERROR, "UsbBootDetectMedia: UsbBootReadCapacity (%r)\n", Status));
-    goto ON_ERROR;
-  }
-
-  return EFI_SUCCESS;
-
-ON_ERROR:
   //
   // Detect whether it is necessary to reinstall the Block I/O Protocol.
   //
@@ -751,12 +751,15 @@ ON_ERROR:
       (Media->LastBlock != OldMedia.LastBlock)) {
 
     //
-    // This function is called by Block I/O Protocol APIs, which run at TPL_NOTIFY.
-    // Here we temporarily restore TPL to TPL_CALLBACK to invoke ReinstallProtocolInterface().
-    //
-    OldTpl = EfiGetCurrentTpl ();
-    gBS->RestoreTPL (TPL_CALLBACK);
+    // This function is called from:
+    //   Block I/O Protocol APIs, which run at TPL_CALLBACK.
+    //   DriverBindingStart(), which raises to TPL_CALLBACK.
+    ASSERT (EfiGetCurrentTpl () == TPL_CALLBACK);
 
+    //
+    // When it is called from DriverBindingStart(), below reinstall fails.
+    // So ignore the return status check.
+    //
     gBS->ReinstallProtocolInterface (
            UsbMass->Controller,
            &gEfiBlockIoProtocolGuid,
@@ -764,11 +767,8 @@ ON_ERROR:
            &UsbMass->BlockIo
            );
 
-    ASSERT (EfiGetCurrentTpl () == TPL_CALLBACK);
-    gBS->RaiseTPL (OldTpl);
-
     //
-    // Update MediaId after reinstalling Block I/O Protocol.
+    // Reset MediaId after reinstalling Block I/O Protocol.
     //
     if (Media->MediaPresent != OldMedia.MediaPresent) {
       if (Media->MediaPresent) {
@@ -783,6 +783,8 @@ ON_ERROR:
         (Media->LastBlock != OldMedia.LastBlock)) {
       Media->MediaId++;
     }
+
+    Status = Media->MediaPresent ? EFI_MEDIA_CHANGED : EFI_NO_MEDIA;
   }
 
   return Status;

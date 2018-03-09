@@ -1,7 +1,7 @@
 /** @file
   Defines Opal HII form ids, structures and values.
 
-Copyright (c) 2016, Intel Corporation. All rights reserved.<BR>
+Copyright (c) 2016 - 2018, Intel Corporation. All rights reserved.<BR>
 This program and the accompanying materials
 are licensed and made available under the terms and conditions of the BSD License
 which accompanies this distribution.  The full text of the license may be found at
@@ -16,32 +16,44 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #ifndef _OPAL_HII_FORM_VALUES_H_
 #define _OPAL_HII_FORM_VALUES_H_
 
-// Maximum Opal password Length
-#define MAX_PASSWORD_CHARACTER_LENGTH                      0x14
-
-// PSID Length
-#define PSID_CHARACTER_LENGTH                              0x20
-#define PSID_CHARACTER_STRING_END_LENGTH                   0x21
-
 // ID's for various forms that will be used by HII
 #define FORMID_VALUE_MAIN_MENU                             0x01
 #define FORMID_VALUE_DISK_INFO_FORM_MAIN                   0x02
-#define FORMID_VALUE_DISK_ACTION_FORM                      0x03
 
-// Structure defining the OPAL_HII_CONFIGURATION
+#define OPAL_REQUEST_VARIABLE_NAME                         L"OpalRequest"
+
 #pragma pack(1)
 typedef struct {
-    UINT8   NumDisks;
-    UINT8   SelectedDiskIndex;
-    UINT8   SelectedAction;
-    UINT16  SelectedDiskAvailableActions;
-    UINT16  SupportedDisks;
-    UINT8   KeepUserData;
-    UINT16  AvailableFields;
-    UINT16  Password[MAX_PASSWORD_CHARACTER_LENGTH];
-    UINT16  Psid[PSID_CHARACTER_STRING_END_LENGTH];
-    UINT8   EnableBlockSid;
+  UINT16    Lock:1;
+  UINT16    Unlock:1;
+  UINT16    SetAdminPwd:1;
+  UINT16    SetUserPwd:1;
+  UINT16    SecureErase:1;
+  UINT16    Revert:1;
+  UINT16    PsidRevert:1;
+  UINT16    DisableUser:1;
+  UINT16    DisableFeature:1;
+  UINT16    EnableFeature:1;
+  UINT16    Reserved:5;
+  UINT16    KeepUserData:1;
+} OPAL_REQUEST;
+
+typedef struct {
+  UINT8           NumDisks;
+  UINT8           SelectedDiskIndex;
+  UINT16          SelectedDiskAvailableActions;
+  UINT16          SupportedDisks;
+  BOOLEAN         KeepUserDataForced;
+  OPAL_REQUEST    OpalRequest;
+  UINT8           EnableBlockSid;
 } OPAL_HII_CONFIGURATION;
+
+typedef struct {
+  UINT32                   Length;
+  OPAL_REQUEST             OpalRequest;
+  //EFI_DEVICE_PATH_PROTOCOL OpalDevicePath;
+} OPAL_REQUEST_VARIABLE;
+
 #pragma pack()
 
 /* Action Flags */
@@ -51,17 +63,11 @@ typedef struct {
 #define HII_ACTION_SET_ADMIN_PWD                               0x0004
 #define HII_ACTION_SET_USER_PWD                                0x0008
 #define HII_ACTION_SECURE_ERASE                                0x0010
-#define HII_ACTION_PSID_REVERT                                 0x0020
-#define HII_ACTION_DISABLE_USER                                0x0040
-#define HII_ACTION_REVERT                                      0x0080
+#define HII_ACTION_REVERT                                      0x0020
+#define HII_ACTION_PSID_REVERT                                 0x0040
+#define HII_ACTION_DISABLE_USER                                0x0080
 #define HII_ACTION_DISABLE_FEATURE                             0x0100
 #define HII_ACTION_ENABLE_FEATURE                              0x0200
-
-/* Flags for diskActionAvailableFields */
-#define HII_FIELD_PASSWORD                      0x0001
-#define HII_FIELD_PSID                          0x0002
-#define HII_FIELD_KEEP_USER_DATA                0x0004
-#define HII_FIELD_KEEP_USER_DATA_FORCED         0x0008
 
 /* Number of bits allocated for each part of a unique key for an HII_ITEM
  * all bits together must be <= 16 (EFI_QUESTION_ID is UINT16)
@@ -79,25 +85,22 @@ typedef struct {
 /* Key IDs */
 /***********/
 
-#define HII_KEY_ID_GOTO_MAIN_MENU                       0
 #define HII_KEY_ID_GOTO_DISK_INFO                       1
-#define HII_KEY_ID_GOTO_LOCK                            2
-#define HII_KEY_ID_GOTO_UNLOCK                          3
-#define HII_KEY_ID_GOTO_SET_ADMIN_PWD                   4
-#define HII_KEY_ID_GOTO_SET_USER_PWD                    5
-#define HII_KEY_ID_GOTO_SECURE_ERASE                    6
-#define HII_KEY_ID_GOTO_PSID_REVERT                     7
-#define HII_KEY_ID_GOTO_REVERT                          8
-#define HII_KEY_ID_GOTO_DISABLE_USER                    9
-#define HII_KEY_ID_GOTO_ENABLE_FEATURE                  0xA //10
-#define HII_KEY_ID_GOTO_CONFIRM_TO_MAIN_MENU            0xB //11
-#define HII_KEY_ID_ENTER_PASSWORD                       0xC //12
-#define HII_KEY_ID_ENTER_PSID                           0xD //13
-#define HII_KEY_ID_VAR_SUPPORTED_DISKS                  0xE //14
-#define HII_KEY_ID_VAR_SELECTED_DISK_AVAILABLE_ACTIONS  0xF //15
 
-#define HII_KEY_ID_BLOCKSID                             0x17 //23
-#define HII_KEY_ID_MAX                                  0x17 //23 // !!Update each time a new ID is added!!
+#define HII_KEY_ID_VAR_SUPPORTED_DISKS                  2
+#define HII_KEY_ID_VAR_SELECTED_DISK_AVAILABLE_ACTIONS  3
+
+#define HII_KEY_ID_BLOCKSID                             4
+#define HII_KEY_ID_SET_ADMIN_PWD                        5
+#define HII_KEY_ID_SET_USER_PWD                         6
+#define HII_KEY_ID_SECURE_ERASE                         7
+#define HII_KEY_ID_REVERT                               8
+#define HII_KEY_ID_KEEP_USER_DATA                       9
+#define HII_KEY_ID_PSID_REVERT                          0xA
+#define HII_KEY_ID_DISABLE_USER                         0xB
+#define HII_KEY_ID_ENABLE_FEATURE                       0xC
+
+#define HII_KEY_ID_MAX                                  0xC // !!Update each time a new ID is added!!
 
 #define HII_KEY_WITH_INDEX(id, index) \
     ( \

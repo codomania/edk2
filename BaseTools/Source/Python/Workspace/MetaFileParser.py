@@ -1243,6 +1243,13 @@ class DscParser(MetaFileParser):
         # PCD cannot be referenced in macro definition
         if self._ItemType not in [MODEL_META_DATA_DEFINE, MODEL_META_DATA_GLOBAL_DEFINE]:
             Macros.update(self._Symbols)
+        if GlobalData.BuildOptionPcd:
+            for Item in GlobalData.BuildOptionPcd:
+                if type(Item) is tuple:
+                    continue
+                PcdName, TmpValue = Item.split("=")
+                TmpValue = BuildOptionValue(TmpValue, self._GuidDict)
+                Macros[PcdName.strip()] = TmpValue
         return Macros
 
     def _PostProcess(self):

@@ -1,7 +1,7 @@
 /** @file
   This driver is used for Opal Password Feature support at AHCI mode.
 
-Copyright (c) 2016, Intel Corporation. All rights reserved.<BR>
+Copyright (c) 2016 - 2018, Intel Corporation. All rights reserved.<BR>
 This program and the accompanying materials
 are licensed and made available under the terms and conditions of the BSD License
 which accompanies this distribution.  The full text of the license may be found at
@@ -13,11 +13,12 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 **/
 
 
-#include "OpalPasswordSmm.h"
+#include "OpalPasswordPei.h"
 
 /**
   Start command for give slot on specific port.
 
+  @param  AhciBar            AHCI bar address.
   @param  Port               The number of port.
   @param  CommandSlot        The number of CommandSlot.
   @param  Timeout            The timeout Value of start.
@@ -30,6 +31,7 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 EFI_STATUS
 EFIAPI
 AhciStartCommand (
+  IN  UINT32                    AhciBar,
   IN  UINT8                     Port,
   IN  UINT8                     CommandSlot,
   IN  UINT64                    Timeout
@@ -38,6 +40,7 @@ AhciStartCommand (
 /**
   Stop command running for giving port
 
+  @param  AhciBar            AHCI bar address.
   @param  Port               The number of port.
   @param  Timeout            The timeout Value of stop.
 
@@ -49,6 +52,7 @@ AhciStartCommand (
 EFI_STATUS
 EFIAPI
 AhciStopCommand (
+  IN  UINT32                    AhciBar,
   IN  UINT8                     Port,
   IN  UINT64                    Timeout
   );
@@ -56,6 +60,7 @@ AhciStopCommand (
 /**
   Read AHCI Operation register.
 
+  @param  AhciBar      AHCI bar address.
   @param  Offset       The operation register offset.
 
   @return The register content read.
@@ -64,6 +69,7 @@ AhciStopCommand (
 UINT32
 EFIAPI
 AhciReadReg (
+  IN  UINT32              AhciBar,
   IN  UINT32              Offset
   )
 {
@@ -71,7 +77,7 @@ AhciReadReg (
 
   Data = 0;
 
-  Data = MmioRead32 (mAhciBar + Offset);
+  Data = MmioRead32 (AhciBar + Offset);
 
   return Data;
 }
@@ -79,6 +85,7 @@ AhciReadReg (
 /**
   Write AHCI Operation register.
 
+  @param  AhciBar      AHCI bar address.
   @param  Offset       The operation register offset.
   @param  Data         The Data used to write down.
 
@@ -86,11 +93,12 @@ AhciReadReg (
 VOID
 EFIAPI
 AhciWriteReg (
+  IN UINT32               AhciBar,
   IN UINT32               Offset,
   IN UINT32               Data
   )
 {
-  MmioWrite32 (mAhciBar + Offset, Data);
+  MmioWrite32 (AhciBar + Offset, Data);
 
   return ;
 }
@@ -98,6 +106,7 @@ AhciWriteReg (
 /**
   Do AND operation with the Value of AHCI Operation register.
 
+  @param  AhciBar      AHCI bar address.
   @param  Offset       The operation register offset.
   @param  AndData      The Data used to do AND operation.
 
@@ -105,22 +114,24 @@ AhciWriteReg (
 VOID
 EFIAPI
 AhciAndReg (
+  IN UINT32               AhciBar,
   IN UINT32               Offset,
   IN UINT32               AndData
   )
 {
   UINT32 Data;
 
-  Data  = AhciReadReg (Offset);
+  Data  = AhciReadReg (AhciBar, Offset);
 
   Data &= AndData;
 
-  AhciWriteReg (Offset, Data);
+  AhciWriteReg (AhciBar, Offset, Data);
 }
 
 /**
   Do OR operation with the Value of AHCI Operation register.
 
+  @param  AhciBar      AHCI bar address.
   @param  Offset       The operation register offset.
   @param  OrData       The Data used to do OR operation.
 
@@ -128,23 +139,25 @@ AhciAndReg (
 VOID
 EFIAPI
 AhciOrReg (
+  IN UINT32               AhciBar,
   IN UINT32               Offset,
   IN UINT32               OrData
   )
 {
   UINT32 Data;
 
-  Data  = AhciReadReg (Offset);
+  Data  = AhciReadReg (AhciBar, Offset);
 
   Data |= OrData;
 
-  AhciWriteReg (Offset, Data);
+  AhciWriteReg (AhciBar, Offset, Data);
 }
 
 /**
   Wait for memory set to the test Value.
 
-  @param  Offset            The memory address to test.
+  @param  AhciBar           AHCI bar address.
+  @param  Offset            The memory offset to test.
   @param  MaskValue         The mask Value of memory.
   @param  TestValue         The test Value of memory.
   @param  Timeout           The time out Value for wait memory set.
@@ -157,6 +170,7 @@ AhciOrReg (
 EFI_STATUS
 EFIAPI
 AhciWaitMmioSet (
+  IN  UINT32                    AhciBar,
   IN  UINT32                    Offset,
   IN  UINT32                    MaskValue,
   IN  UINT32                    TestValue,
@@ -169,7 +183,7 @@ AhciWaitMmioSet (
   Delay = (UINT32) (DivU64x32(Timeout, 1000) + 1);
 
   do {
-    Value = AhciReadReg (Offset) & MaskValue;
+    Value = AhciReadReg (AhciBar, Offset) & MaskValue;
 
     if (Value == TestValue) {
       return EFI_SUCCESS;
@@ -286,12 +300,14 @@ AhciCheckMemSet (
   Clear the port interrupt and error status. It will also clear
   HBA interrupt status.
 
+  @param      AhciBar        AHCI bar address.
   @param      Port           The number of port.
 
 **/
 VOID
 EFIAPI
 AhciClearPortStatus (
+  IN  UINT32                 AhciBar,
   IN  UINT8                  Port
   )
 {
@@ -301,23 +317,24 @@ AhciClearPortStatus (
   // Clear any error status
   //
   Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_SERR;
-  AhciWriteReg (Offset, AhciReadReg (Offset));
+  AhciWriteReg (AhciBar, Offset, AhciReadReg (AhciBar, Offset));
 
   //
   // Clear any port interrupt status
   //
   Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_IS;
-  AhciWriteReg (Offset, AhciReadReg (Offset));
+  AhciWriteReg (AhciBar, Offset, AhciReadReg (AhciBar, Offset));
 
   //
   // Clear any HBA interrupt status
   //
-  AhciWriteReg (EFI_AHCI_IS_OFFSET, AhciReadReg (EFI_AHCI_IS_OFFSET));
+  AhciWriteReg (AhciBar, EFI_AHCI_IS_OFFSET, AhciReadReg (AhciBar, EFI_AHCI_IS_OFFSET));
 }
 
 /**
   Enable the FIS running for giving port.
 
+  @param      AhciBar        AHCI bar address.
   @param      Port           The number of port.
   @param      Timeout        The timeout Value of enabling FIS.
 
@@ -329,6 +346,7 @@ AhciClearPortStatus (
 EFI_STATUS
 EFIAPI
 AhciEnableFisReceive (
+  IN  UINT32                    AhciBar,
   IN  UINT8                     Port,
   IN  UINT64                    Timeout
   )
@@ -336,9 +354,10 @@ AhciEnableFisReceive (
   UINT32 Offset;
 
   Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_CMD;
-  AhciOrReg (Offset, EFI_AHCI_PORT_CMD_FRE);
+  AhciOrReg (AhciBar, Offset, EFI_AHCI_PORT_CMD_FRE);
 
   return AhciWaitMmioSet (
+           AhciBar,
            Offset,
            EFI_AHCI_PORT_CMD_FR,
            EFI_AHCI_PORT_CMD_FR,
@@ -349,6 +368,7 @@ AhciEnableFisReceive (
 /**
   Disable the FIS running for giving port.
 
+  @param      AhciBar        AHCI bar address.
   @param      Port           The number of port.
   @param      Timeout        The timeout Value of disabling FIS.
 
@@ -361,6 +381,7 @@ AhciEnableFisReceive (
 EFI_STATUS
 EFIAPI
 AhciDisableFisReceive (
+  IN  UINT32                    AhciBar,
   IN  UINT8                     Port,
   IN  UINT64                    Timeout
   )
@@ -369,7 +390,7 @@ AhciDisableFisReceive (
   UINT32 Data;
 
   Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_CMD;
-  Data   = AhciReadReg (Offset);
+  Data   = AhciReadReg (AhciBar, Offset);
 
   //
   // Before disabling Fis receive, the DMA engine of the port should NOT be in running status.
@@ -385,9 +406,10 @@ AhciDisableFisReceive (
     return EFI_SUCCESS;
   }
 
-  AhciAndReg (Offset, (UINT32)~(EFI_AHCI_PORT_CMD_FRE));
+  AhciAndReg (AhciBar, Offset, (UINT32)~(EFI_AHCI_PORT_CMD_FRE));
 
   return AhciWaitMmioSet (
+           AhciBar,
            Offset,
            EFI_AHCI_PORT_CMD_FR,
            0,
@@ -398,7 +420,7 @@ AhciDisableFisReceive (
 /**
   Build the command list, command table and prepare the fis receiver.
 
-  @param    AhciRegisters         The pointer to the EFI_AHCI_REGISTERS.
+  @param    AhciContext           The pointer to the AHCI_CONTEXT.
   @param    Port                  The number of port.
   @param    PortMultiplier        The timeout Value of stop.
   @param    CommandFis            The control fis will be used for the transfer.
@@ -413,7 +435,7 @@ AhciDisableFisReceive (
 VOID
 EFIAPI
 AhciBuildCommand (
-  IN     EFI_AHCI_REGISTERS         *AhciRegisters,
+  IN     AHCI_CONTEXT               *AhciContext,
   IN     UINT8                      Port,
   IN     UINT8                      PortMultiplier,
   IN     EFI_AHCI_COMMAND_FIS       *CommandFis,
@@ -425,12 +447,17 @@ AhciBuildCommand (
   IN     UINT64                     DataLength
   )
 {
-  UINT64     BaseAddr;
-  UINT64     PrdtNumber;
-  UINTN      RemainedData;
-  UINTN      MemAddr;
-  DATA_64    Data64;
-  UINT32     Offset;
+  EFI_AHCI_REGISTERS    *AhciRegisters;
+  UINT32                AhciBar;
+  UINT64                BaseAddr;
+  UINT64                PrdtNumber;
+  UINTN                 RemainedData;
+  UINTN                 MemAddr;
+  DATA_64               Data64;
+  UINT32                Offset;
+
+  AhciRegisters = &AhciContext->AhciRegisters;
+  AhciBar = AhciContext->AhciBar;
 
   //
   // Filling the PRDT
@@ -467,9 +494,9 @@ AhciBuildCommand (
     CommandList->AhciCmdA = 1;
     CommandList->AhciCmdP = 1;
 
-    AhciOrReg (Offset, (EFI_AHCI_PORT_CMD_DLAE | EFI_AHCI_PORT_CMD_ATAPI));
+    AhciOrReg (AhciBar, Offset, (EFI_AHCI_PORT_CMD_DLAE | EFI_AHCI_PORT_CMD_ATAPI));
   } else {
-    AhciAndReg (Offset, (UINT32)~(EFI_AHCI_PORT_CMD_DLAE | EFI_AHCI_PORT_CMD_ATAPI));
+    AhciAndReg (AhciBar, Offset, (UINT32)~(EFI_AHCI_PORT_CMD_DLAE | EFI_AHCI_PORT_CMD_ATAPI));
   }
 
   RemainedData = (UINTN) DataLength;
@@ -544,7 +571,7 @@ AhciBuildCommandFis (
 /**
   Start a PIO Data transfer on specific port.
 
-  @param  AhciRegisters       The pointer to the EFI_AHCI_REGISTERS.
+  @param  AhciContext         The pointer to the AHCI_CONTEXT.
   @param  Port                The number of port.
   @param  PortMultiplier      The timeout Value of stop.
   @param  AtapiCommand        The atapi command will be used for the transfer.
@@ -565,7 +592,7 @@ AhciBuildCommandFis (
 EFI_STATUS
 EFIAPI
 AhciPioTransfer (
-  IN     EFI_AHCI_REGISTERS         *AhciRegisters,
+  IN     AHCI_CONTEXT               *AhciContext,
   IN     UINT8                      Port,
   IN     UINT8                      PortMultiplier,
   IN     EFI_AHCI_ATAPI_COMMAND     *AtapiCommand OPTIONAL,
@@ -579,6 +606,8 @@ AhciPioTransfer (
   )
 {
   EFI_STATUS                    Status;
+  EFI_AHCI_REGISTERS            *AhciRegisters;
+  UINT32                        AhciBar;
   UINT32                        FisBaseAddr;
   UINT32                        Offset;
   UINT32                        Delay;
@@ -591,26 +620,29 @@ AhciPioTransfer (
   UINT32                        OldCmdListLo;
   UINT32                        OldCmdListHi;
 
+  AhciRegisters = &AhciContext->AhciRegisters;
+  AhciBar = AhciContext->AhciBar;
+
   Offset    = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_FB;
-  OldRfisLo = AhciReadReg (Offset);
+  OldRfisLo = AhciReadReg (AhciBar, Offset);
   Offset    = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_FBU;
-  OldRfisHi = AhciReadReg (Offset);
+  OldRfisHi = AhciReadReg (AhciBar, Offset);
   Offset    = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_FB;
-  AhciWriteReg (Offset, (UINT32)(UINTN)AhciRegisters->AhciRFis);
+  AhciWriteReg (AhciBar, Offset, (UINT32)(UINTN)AhciRegisters->AhciRFis);
   Offset    = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_FBU;
-  AhciWriteReg (Offset, 0);
+  AhciWriteReg (AhciBar, Offset, 0);
 
   //
   // Single task envrionment, we only use one command table for all port
   //
   Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_CLB;
-  OldCmdListLo = AhciReadReg (Offset);
+  OldCmdListLo = AhciReadReg (AhciBar, Offset);
   Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_CLBU;
-  OldCmdListHi = AhciReadReg (Offset);
+  OldCmdListHi = AhciReadReg (AhciBar, Offset);
   Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_CLB;
-  AhciWriteReg (Offset, (UINT32)(UINTN)AhciRegisters->AhciCmdList);
+  AhciWriteReg (AhciBar, Offset, (UINT32)(UINTN)AhciRegisters->AhciCmdList);
   Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_CLBU;
-  AhciWriteReg (Offset, 0);
+  AhciWriteReg (AhciBar, Offset, 0);
 
   //
   // Package read needed
@@ -623,7 +655,7 @@ AhciPioTransfer (
   CmdList.AhciCmdW   = Read ? 0 : 1;
 
   AhciBuildCommand (
-    AhciRegisters,
+    AhciContext,
     Port,
     PortMultiplier,
     &CFis,
@@ -631,11 +663,12 @@ AhciPioTransfer (
     AtapiCommand,
     AtapiCommandLength,
     0,
-    (VOID *)(UINTN)MemoryAddr,
+    MemoryAddr,
     DataCount
     );
 
   Status = AhciStartCommand (
+             AhciBar,
              Port,
              0,
              Timeout
@@ -660,7 +693,7 @@ AhciPioTransfer (
       Status = AhciCheckMemSet (Offset, EFI_AHCI_FIS_TYPE_MASK, EFI_AHCI_FIS_PIO_SETUP, 0);
       if (!EFI_ERROR (Status)) {
         Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_TFD;
-        PortTfd = AhciReadReg ((UINT32) Offset);
+        PortTfd = AhciReadReg (AhciBar, (UINT32) Offset);
         //
         // PxTFD will be updated if there is a D2H or SetupFIS received.
         // For PIO IN transfer, D2H means a device error. Therefore we only need to check the TFD after receiving a SetupFIS.
@@ -707,7 +740,7 @@ AhciPioTransfer (
     }
 
     Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_TFD;
-    PortTfd = AhciReadReg ((UINT32) Offset);
+    PortTfd = AhciReadReg (AhciBar, (UINT32) Offset);
     if ((PortTfd & EFI_AHCI_PORT_TFD_ERR) != 0) {
       Status = EFI_DEVICE_ERROR;
     }
@@ -715,24 +748,26 @@ AhciPioTransfer (
 
 Exit:
   AhciStopCommand (
+    AhciBar,
     Port,
     Timeout
     );
 
   AhciDisableFisReceive (
+    AhciBar,
     Port,
     Timeout
     );
 
   Offset    = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_FB;
-  AhciWriteReg (Offset, OldRfisLo);
+  AhciWriteReg (AhciBar, Offset, OldRfisLo);
   Offset    = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_FBU;
-  AhciWriteReg (Offset, OldRfisHi);
+  AhciWriteReg (AhciBar, Offset, OldRfisHi);
 
   Offset    = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_CLB;
-  AhciWriteReg (Offset, OldCmdListLo);
+  AhciWriteReg (AhciBar, Offset, OldCmdListLo);
   Offset    = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_CLBU;
-  AhciWriteReg (Offset, OldCmdListHi);
+  AhciWriteReg (AhciBar, Offset, OldCmdListHi);
 
   return Status;
 }
@@ -740,6 +775,7 @@ Exit:
 /**
   Stop command running for giving port
 
+  @param  AhciBar            AHCI bar address.
   @param  Port               The number of port.
   @param  Timeout            The timeout Value of stop.
 
@@ -751,6 +787,7 @@ Exit:
 EFI_STATUS
 EFIAPI
 AhciStopCommand (
+  IN  UINT32                    AhciBar,
   IN  UINT8                     Port,
   IN  UINT64                    Timeout
   )
@@ -759,17 +796,18 @@ AhciStopCommand (
   UINT32 Data;
 
   Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_CMD;
-  Data   = AhciReadReg (Offset);
+  Data   = AhciReadReg (AhciBar, Offset);
 
   if ((Data & (EFI_AHCI_PORT_CMD_ST |  EFI_AHCI_PORT_CMD_CR)) == 0) {
     return EFI_SUCCESS;
   }
 
   if ((Data & EFI_AHCI_PORT_CMD_ST) != 0) {
-    AhciAndReg (Offset, (UINT32)~(EFI_AHCI_PORT_CMD_ST));
+    AhciAndReg (AhciBar, Offset, (UINT32)~(EFI_AHCI_PORT_CMD_ST));
   }
 
   return AhciWaitMmioSet (
+           AhciBar,
            Offset,
            EFI_AHCI_PORT_CMD_CR,
            0,
@@ -780,6 +818,7 @@ AhciStopCommand (
 /**
   Start command for give slot on specific port.
 
+  @param  AhciBar            AHCI bar address.
   @param  Port               The number of port.
   @param  CommandSlot        The number of CommandSlot.
   @param  Timeout            The timeout Value of start.
@@ -792,6 +831,7 @@ AhciStopCommand (
 EFI_STATUS
 EFIAPI
 AhciStartCommand (
+  IN  UINT32                    AhciBar,
   IN  UINT8                     Port,
   IN  UINT8                     CommandSlot,
   IN  UINT64                    Timeout
@@ -808,15 +848,17 @@ AhciStartCommand (
   //
   // Collect AHCI controller information
   //
-  Capability = AhciReadReg(EFI_AHCI_CAPABILITY_OFFSET);
+  Capability = AhciReadReg(AhciBar, EFI_AHCI_CAPABILITY_OFFSET);
 
   CmdSlotBit = (UINT32) (1 << CommandSlot);
 
   AhciClearPortStatus (
+    AhciBar,
     Port
     );
 
   Status = AhciEnableFisReceive (
+             AhciBar,
              Port,
              Timeout
              );
@@ -826,24 +868,25 @@ AhciStartCommand (
   }
 
   Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_CMD;
-  PortStatus = AhciReadReg (Offset);
+  PortStatus = AhciReadReg (AhciBar, Offset);
 
   StartCmd = 0;
   if ((PortStatus & EFI_AHCI_PORT_CMD_ALPE) != 0) {
-    StartCmd = AhciReadReg (Offset);
+    StartCmd = AhciReadReg (AhciBar, Offset);
     StartCmd &= ~EFI_AHCI_PORT_CMD_ICC_MASK;
     StartCmd |= EFI_AHCI_PORT_CMD_ACTIVE;
   }
 
   Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_TFD;
-  PortTfd = AhciReadReg (Offset);
+  PortTfd = AhciReadReg (AhciBar, Offset);
 
   if ((PortTfd & (EFI_AHCI_PORT_TFD_BSY | EFI_AHCI_PORT_TFD_DRQ)) != 0) {
     if ((Capability & BIT24) != 0) {
       Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_CMD;
-      AhciOrReg (Offset, EFI_AHCI_PORT_CMD_COL);
+      AhciOrReg (AhciBar, Offset, EFI_AHCI_PORT_CMD_COL);
 
       AhciWaitMmioSet (
+        AhciBar,
         Offset,
         EFI_AHCI_PORT_CMD_COL,
         0,
@@ -853,18 +896,18 @@ AhciStartCommand (
   }
 
   Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_CMD;
-  AhciOrReg (Offset, EFI_AHCI_PORT_CMD_ST | StartCmd);
+  AhciOrReg (AhciBar, Offset, EFI_AHCI_PORT_CMD_ST | StartCmd);
 
   //
   // Setting the command
   //
   Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_SACT;
-  AhciAndReg (Offset, 0);
-  AhciOrReg (Offset, CmdSlotBit);
+  AhciAndReg (AhciBar, Offset, 0);
+  AhciOrReg (AhciBar, Offset, CmdSlotBit);
 
   Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_CI;
-  AhciAndReg (Offset, 0);
-  AhciOrReg (Offset, CmdSlotBit);
+  AhciAndReg (AhciBar, Offset, 0);
+  AhciOrReg (AhciBar, Offset, CmdSlotBit);
   return EFI_SUCCESS;
 }
 
@@ -872,6 +915,7 @@ AhciStartCommand (
 /**
   Do AHCI HBA reset.
 
+  @param[in]  AhciBar        AHCI bar address.
   @param[in]  Timeout        The timeout Value of reset.
 
   @retval EFI_DEVICE_ERROR   AHCI controller is failed to complete hardware reset.
@@ -882,6 +926,7 @@ AhciStartCommand (
 EFI_STATUS
 EFIAPI
 AhciReset (
+  IN  UINT32                    AhciBar,
   IN  UINT64                    Timeout
   )
 {
@@ -892,21 +937,21 @@ AhciReset (
   //
   // Collect AHCI controller information
   //
-  Capability = AhciReadReg (EFI_AHCI_CAPABILITY_OFFSET);
+  Capability = AhciReadReg (AhciBar, EFI_AHCI_CAPABILITY_OFFSET);
 
   //
   // Enable AE before accessing any AHCI registers if Supports AHCI Mode Only is not set
   //
   if ((Capability & EFI_AHCI_CAP_SAM) == 0) {
-    AhciOrReg (EFI_AHCI_GHC_OFFSET, EFI_AHCI_GHC_ENABLE);
+    AhciOrReg (AhciBar, EFI_AHCI_GHC_OFFSET, EFI_AHCI_GHC_ENABLE);
   }
 
-  AhciOrReg (EFI_AHCI_GHC_OFFSET, EFI_AHCI_GHC_RESET);
+  AhciOrReg (AhciBar, EFI_AHCI_GHC_OFFSET, EFI_AHCI_GHC_RESET);
 
   Delay = (UINT32) (DivU64x32(Timeout, 1000) + 1);
 
   do {
-    Value = AhciReadReg(EFI_AHCI_GHC_OFFSET);
+    Value = AhciReadReg(AhciBar, EFI_AHCI_GHC_OFFSET);
     if ((Value & EFI_AHCI_GHC_RESET) == 0) {
       return EFI_SUCCESS;
     }
@@ -927,7 +972,7 @@ AhciReset (
 /**
   Send Buffer cmd to specific device.
 
-  @param[in]  AhciRegisters       The pointer to the EFI_AHCI_REGISTERS.
+  @param[in]  AhciContext         The pointer to the AHCI_CONTEXT.
   @param[in]  Port                The port number of attached ATA device.
   @param[in]  PortMultiplier      The port number of port multiplier of attached ATA device.
   @param[in, out]  Buffer         The Data Buffer to store IDENTIFY PACKET Data.
@@ -941,7 +986,7 @@ AhciReset (
 EFI_STATUS
 EFIAPI
 AhciIdentify (
-  IN EFI_AHCI_REGISTERS       *AhciRegisters,
+  IN AHCI_CONTEXT             *AhciContext,
   IN UINT8                    Port,
   IN UINT8                    PortMultiplier,
   IN OUT ATA_IDENTIFY_DATA    *Buffer
@@ -950,7 +995,7 @@ AhciIdentify (
   EFI_STATUS                   Status;
   EFI_ATA_COMMAND_BLOCK        AtaCommandBlock;
 
-  if (AhciRegisters == NULL || Buffer == NULL) {
+  if (AhciContext == NULL || Buffer == NULL) {
     return EFI_INVALID_PARAMETER;
   }
 
@@ -960,7 +1005,7 @@ AhciIdentify (
   AtaCommandBlock.AtaSectorCount = 1;
 
   Status = AhciPioTransfer (
-             AhciRegisters,
+             AhciContext,
              Port,
              PortMultiplier,
              NULL,
@@ -977,175 +1022,188 @@ AhciIdentify (
 }
 
 /**
-  Get AHCI mode MMIO Bar Size.
+  Allocate transfer-related data struct which is used at AHCI mode.
 
-  @param[in] Bus         The bus number of ata host controller.
-  @param[in] Device      The device number of ata host controller.
-  @param[in] Function    The function number of ata host controller.
+  @param[in, out] AhciContext   The pointer to the AHCI_CONTEXT.
 
-  @retval  The Size of AHCI MMIO BAR.
-
-**/
-UINT32
-EFIAPI
-GetAhciBarSize (
-  IN     UINTN                       Bus,
-  IN     UINTN                       Device,
-  IN     UINTN                       Function
-  )
-{
-  UINT32     Size;
-  UINT32     OldBar;
-
-  OldBar = PciRead32 (PCI_LIB_ADDRESS (Bus, Device, Function, 0x24));
-  //
-  // Disable PCI CMD.MSE bit before calculating MMIO Bar Size as it needs write all 1 to BAR register.
-  //
-  PciAnd32 (PCI_LIB_ADDRESS (Bus, Device, Function, 0x04), (UINT32)~BIT1);
-
-  //
-  // Get AHCI MMIO Bar Size.
-  //
-  PciWrite32 (PCI_LIB_ADDRESS (Bus, Device, Function, 0x24), 0xFFFFFFFF);
-  Size = PciRead32 (PCI_LIB_ADDRESS (Bus, Device, Function, 0x24));
-  Size = (~(Size & 0xFFFFFFF0)) + 1;
-
-  //
-  // Restore old MMIO Bar.
-  //
-  PciWrite32 (PCI_LIB_ADDRESS (Bus, Device, Function, 0x24), OldBar);
-  //
-  // Enable PCI CMD.MSE bit after restoring MMIO Bar.
-  //
-  PciOr32 (PCI_LIB_ADDRESS (Bus, Device, Function, 0x04), BIT1);
-
-  return Size;
-}
-
-/**
-  Get AHCI mode base address registers' Value.
-
-  @param[in] Bus         The bus number of ata host controller.
-  @param[in] Device      The device number of ata host controller.
-  @param[in] Function    The function number of ata host controller.
-
-  @retval EFI_UNSUPPORTED        Return this Value when the BARs is not IO type
-  @retval EFI_SUCCESS            Get the Base address successfully
-  @retval Other                  Read the pci configureation Data error
-
-**/
-EFI_STATUS
-EFIAPI
-GetAhciBaseAddress (
-  IN     UINTN                       Bus,
-  IN     UINTN                       Device,
-  IN     UINTN                       Function
-  )
-{
-  UINT32  Size;
-
-  //
-  // Get AHCI MMIO Bar
-  //
-  mAhciBar = PciRead32 (PCI_LIB_ADDRESS (Bus, Device, Function, 0x24));
-  //
-  // Get AHCI MMIO Bar Size
-  //
-  Size = GetAhciBarSize (Bus, Device, Function);
-  //
-  // Check if the AHCI Bar region is in SMRAM to avoid malicious attack by modifying MMIO Bar to point to SMRAM.
-  //
-  if (!SmmIsMmioValid ((EFI_PHYSICAL_ADDRESS)mAhciBar, Size, NULL)) {
-    return EFI_UNSUPPORTED;
-  }
-
-  return EFI_SUCCESS;
-}
-
-/**
-  Allocate transfer-related Data struct which is used at AHCI mode.
-
-  @retval  EFI_OUT_OF_RESOURCE   The allocation is failure.
-  @retval  EFI_SUCCESS           Successful to allocate memory.
+  @retval EFI_OUT_OF_RESOURCE   No enough resource.
+  @retval EFI_SUCCESS           Successful to allocate resource.
 
 **/
 EFI_STATUS
 EFIAPI
 AhciAllocateResource (
-  VOID
+  IN OUT AHCI_CONTEXT       *AhciContext
   )
 {
-  EFI_STATUS            Status;
-  EFI_PHYSICAL_ADDRESS  Base;
+  EFI_STATUS                Status;
+  EFI_AHCI_REGISTERS        *AhciRegisters;
+  EFI_PHYSICAL_ADDRESS      DeviceAddress;
+  VOID                      *Base;
+  VOID                      *Mapping;
+
+  AhciRegisters = &AhciContext->AhciRegisters;
 
   //
   // Allocate resources required by AHCI host controller.
   //
-  Base = 0xFFFFFFFF;
-  Status = gBS->AllocatePages (
-                  AllocateMaxAddress,
-                  EfiACPIMemoryNVS,
-                  EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_RECEIVED_FIS)),
-                  &Base
-                  );
+  Status = IoMmuAllocateBuffer (
+             EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_RECEIVED_FIS)),
+             &Base,
+             &DeviceAddress,
+             &Mapping
+             );
   if (EFI_ERROR (Status)) {
     return EFI_OUT_OF_RESOURCES;
   }
+  ASSERT (DeviceAddress == ((EFI_PHYSICAL_ADDRESS) (UINTN) Base));
+  AhciRegisters->AhciRFisMapping = Mapping;
+  AhciRegisters->AhciRFis = Base;
+  ZeroMem (AhciRegisters->AhciRFis, EFI_PAGE_SIZE * EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_RECEIVED_FIS)));
 
-  ZeroMem ((VOID *)(UINTN)Base, EFI_PAGE_SIZE * EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_RECEIVED_FIS)));
-  mAhciRegisters.AhciRFis = (VOID *)(UINTN)Base;
-
-  Base = 0xFFFFFFFF;
-  Status = gBS->AllocatePages (
-                  AllocateMaxAddress,
-                  EfiACPIMemoryNVS,
-                  EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_COMMAND_LIST)),
-                  &Base
-                  );
+  Status = IoMmuAllocateBuffer (
+             EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_COMMAND_LIST)),
+             &Base,
+             &DeviceAddress,
+             &Mapping
+             );
   if (EFI_ERROR (Status)) {
-    gBS->FreePages ((EFI_PHYSICAL_ADDRESS)(UINTN)mAhciRegisters.AhciRFis, EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_RECEIVED_FIS)));
+    IoMmuFreeBuffer (
+       EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_RECEIVED_FIS)),
+       AhciRegisters->AhciRFis,
+       AhciRegisters->AhciRFisMapping
+       );
+    AhciRegisters->AhciRFis = NULL;
     return EFI_OUT_OF_RESOURCES;
   }
-  ZeroMem ((VOID *)(UINTN)Base, EFI_PAGE_SIZE * EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_COMMAND_LIST)));
-  mAhciRegisters.AhciCmdList = (VOID *)(UINTN)Base;
+  ASSERT (DeviceAddress == ((EFI_PHYSICAL_ADDRESS) (UINTN) Base));
+  AhciRegisters->AhciCmdListMapping = Mapping;
+  AhciRegisters->AhciCmdList = Base;
+  ZeroMem (AhciRegisters->AhciCmdList, EFI_PAGE_SIZE * EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_COMMAND_LIST)));
 
-  Base = 0xFFFFFFFF;
-  Status = gBS->AllocatePages (
-                  AllocateMaxAddress,
-                  EfiACPIMemoryNVS,
-                  EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_COMMAND_TABLE)),
-                  &Base
-                  );
+  Status = IoMmuAllocateBuffer (
+             EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_COMMAND_TABLE)),
+             &Base,
+             &DeviceAddress,
+             &Mapping
+             );
   if (EFI_ERROR (Status)) {
-    gBS->FreePages ((EFI_PHYSICAL_ADDRESS)(UINTN)mAhciRegisters.AhciRFis, EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_RECEIVED_FIS)));
-    gBS->FreePages ((EFI_PHYSICAL_ADDRESS)(UINTN)mAhciRegisters.AhciCmdList, EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_COMMAND_LIST)));
+    IoMmuFreeBuffer (
+       EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_COMMAND_LIST)),
+       AhciRegisters->AhciCmdList,
+       AhciRegisters->AhciCmdListMapping
+       );
+    AhciRegisters->AhciCmdList = NULL;
+    IoMmuFreeBuffer (
+       EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_RECEIVED_FIS)),
+       AhciRegisters->AhciRFis,
+       AhciRegisters->AhciRFisMapping
+       );
+    AhciRegisters->AhciRFis = NULL;
     return EFI_OUT_OF_RESOURCES;
   }
-  ZeroMem ((VOID *)(UINTN)Base, EFI_PAGE_SIZE * EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_COMMAND_TABLE)));
-  mAhciRegisters.AhciCommandTable = (VOID *)(UINTN)Base;
+  ASSERT (DeviceAddress == ((EFI_PHYSICAL_ADDRESS) (UINTN) Base));
+  AhciRegisters->AhciCommandTableMapping = Mapping;
+  AhciRegisters->AhciCommandTable = Base;
+  ZeroMem (AhciRegisters->AhciCommandTable, EFI_PAGE_SIZE * EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_COMMAND_TABLE)));
+
+  //
+  // Allocate resources for data transfer.
+  //
+  Status = IoMmuAllocateBuffer (
+             EFI_SIZE_TO_PAGES (HDD_PAYLOAD),
+             &Base,
+             &DeviceAddress,
+             &Mapping
+             );
+  if (EFI_ERROR (Status)) {
+    IoMmuFreeBuffer (
+       EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_RECEIVED_FIS)),
+       AhciRegisters->AhciCommandTable,
+       AhciRegisters->AhciCommandTableMapping
+       );
+    AhciRegisters->AhciCommandTable = NULL;
+    IoMmuFreeBuffer (
+       EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_COMMAND_LIST)),
+       AhciRegisters->AhciCmdList,
+       AhciRegisters->AhciCmdListMapping
+       );
+    AhciRegisters->AhciCmdList = NULL;
+    IoMmuFreeBuffer (
+       EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_RECEIVED_FIS)),
+       AhciRegisters->AhciRFis,
+       AhciRegisters->AhciRFisMapping
+       );
+    AhciRegisters->AhciRFis = NULL;
+    return EFI_OUT_OF_RESOURCES;
+  }
+  ASSERT (DeviceAddress == ((EFI_PHYSICAL_ADDRESS) (UINTN) Base));
+  AhciContext->BufferMapping = Mapping;
+  AhciContext->Buffer = Base;
+  ZeroMem (AhciContext->Buffer, EFI_PAGE_SIZE * EFI_SIZE_TO_PAGES (HDD_PAYLOAD));
+
+  DEBUG ((
+    DEBUG_INFO,
+    "%a() AhciContext 0x%x 0x%x 0x%x 0x%x\n",
+    __FUNCTION__,
+    AhciContext->Buffer,
+    AhciRegisters->AhciRFis,
+    AhciRegisters->AhciCmdList,
+    AhciRegisters->AhciCommandTable
+    ));
   return EFI_SUCCESS;
 }
 
 /**
-  Free allocated transfer-related Data struct which is used at AHCI mode.
+  Free allocated transfer-related data struct which is used at AHCI mode.
+
+  @param[in, out] AhciContext   The pointer to the AHCI_CONTEXT.
 
 **/
 VOID
 EFIAPI
 AhciFreeResource (
-  VOID
+  IN OUT AHCI_CONTEXT       *AhciContext
   )
 {
-  if (mAhciRegisters.AhciRFis != NULL) {
-    gBS->FreePages ((EFI_PHYSICAL_ADDRESS)(UINTN)mAhciRegisters.AhciRFis, EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_RECEIVED_FIS)));
+  EFI_AHCI_REGISTERS        *AhciRegisters;
+
+  AhciRegisters = &AhciContext->AhciRegisters;
+
+  if (AhciContext->Buffer != NULL) {
+    IoMmuFreeBuffer (
+       EFI_SIZE_TO_PAGES (HDD_PAYLOAD),
+       AhciContext->Buffer,
+       AhciContext->BufferMapping
+       );
+    AhciContext->Buffer = NULL;
   }
 
-  if (mAhciRegisters.AhciCmdList != NULL) {
-    gBS->FreePages ((EFI_PHYSICAL_ADDRESS)(UINTN)mAhciRegisters.AhciCmdList, EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_COMMAND_LIST)));
+  if (AhciRegisters->AhciCommandTable != NULL) {
+    IoMmuFreeBuffer (
+       EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_COMMAND_TABLE)),
+       AhciRegisters->AhciCommandTable,
+       AhciRegisters->AhciCommandTableMapping
+       );
+    AhciRegisters->AhciCommandTable = NULL;
   }
 
-  if (mAhciRegisters.AhciCommandTable != NULL) {
-    gBS->FreePages ((EFI_PHYSICAL_ADDRESS)(UINTN)mAhciRegisters.AhciCommandTable, EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_COMMAND_TABLE)));
+  if (AhciRegisters->AhciCmdList != NULL) {
+    IoMmuFreeBuffer (
+       EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_COMMAND_LIST)),
+       AhciRegisters->AhciCmdList,
+       AhciRegisters->AhciCmdListMapping
+       );
+    AhciRegisters->AhciCmdList = NULL;
+  }
+
+  if (AhciRegisters->AhciRFis != NULL) {
+    IoMmuFreeBuffer (
+       EFI_SIZE_TO_PAGES (sizeof (EFI_AHCI_RECEIVED_FIS)),
+       AhciRegisters->AhciRFis,
+       AhciRegisters->AhciRFisMapping
+       );
+    AhciRegisters->AhciRFis = NULL;
   }
 }
 
@@ -1154,22 +1212,29 @@ AhciFreeResource (
 
   The function is designed to initialize ATA host controller.
 
+  @param[in]  AhciContext   The pointer to the AHCI_CONTEXT.
   @param[in]  Port          The port number to do initialization.
 
 **/
 EFI_STATUS
 EFIAPI
 AhciModeInitialize (
-  UINT8              Port
+  IN AHCI_CONTEXT    *AhciContext,
+  IN UINT8           Port
   )
 {
   EFI_STATUS         Status;
+  EFI_AHCI_REGISTERS *AhciRegisters;
+  UINT32             AhciBar;
   UINT32             Capability;
   UINT32             Offset;
   UINT32             Data;
   UINT32             PhyDetectDelay;
 
-  Status = AhciReset (ATA_TIMEOUT);
+  AhciRegisters = &AhciContext->AhciRegisters;
+  AhciBar = AhciContext->AhciBar;
+
+  Status = AhciReset (AhciBar, ATA_TIMEOUT);
   if (EFI_ERROR (Status)) {
     return Status;
   }
@@ -1177,48 +1242,49 @@ AhciModeInitialize (
   //
   // Collect AHCI controller information
   //
-  Capability = AhciReadReg (EFI_AHCI_CAPABILITY_OFFSET);
+  Capability = AhciReadReg (AhciBar, EFI_AHCI_CAPABILITY_OFFSET);
 
   //
   // Enable AE before accessing any AHCI registers if Supports AHCI Mode Only is not set
   //
   if ((Capability & EFI_AHCI_CAP_SAM) == 0) {
-    AhciOrReg (EFI_AHCI_GHC_OFFSET, EFI_AHCI_GHC_ENABLE);
+    AhciOrReg (AhciBar, EFI_AHCI_GHC_OFFSET, EFI_AHCI_GHC_ENABLE);
   }
 
   Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_FB;
-  AhciWriteReg (Offset, (UINT32)(UINTN)mAhciRegisters.AhciRFis);
+  AhciWriteReg (AhciBar, Offset, (UINT32)(UINTN)AhciRegisters->AhciRFis);
 
   //
   // Single task envrionment, we only use one command table for all port
   //
   Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_CLB;
-  AhciWriteReg (Offset, (UINT32)(UINTN)mAhciRegisters.AhciCmdList);
+  AhciWriteReg (AhciBar, Offset, (UINT32)(UINTN)AhciRegisters->AhciCmdList);
 
   Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_CMD;
-  Data = AhciReadReg (Offset);
+  Data = AhciReadReg (AhciBar, Offset);
   if ((Data & EFI_AHCI_PORT_CMD_CPD) != 0) {
-    AhciOrReg (Offset, EFI_AHCI_PORT_CMD_POD);
+    AhciOrReg (AhciBar, Offset, EFI_AHCI_PORT_CMD_POD);
   }
 
   if ((Capability & BIT27) != 0) {
-    AhciOrReg (Offset, EFI_AHCI_PORT_CMD_SUD);
+    AhciOrReg (AhciBar, Offset, EFI_AHCI_PORT_CMD_SUD);
   }
 
   //
   // Disable aggressive power management.
   //
   Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_SCTL;
-  AhciOrReg (Offset, EFI_AHCI_PORT_SCTL_IPM_INIT);
+  AhciOrReg (AhciBar, Offset, EFI_AHCI_PORT_SCTL_IPM_INIT);
   //
   // Disable the reporting of the corresponding interrupt to system software.
   //
   Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_IE;
-  AhciAndReg (Offset, 0);
+  AhciAndReg (AhciBar, Offset, 0);
 
   Status = AhciEnableFisReceive (
+             AhciBar,
              Port,
-             EFI_TIMER_PERIOD_MILLISECONDS(500)
+             5000000
              );
   ASSERT_EFI_ERROR (Status);
   if (EFI_ERROR (Status)) {
@@ -1232,12 +1298,12 @@ AhciModeInitialize (
   PhyDetectDelay = 16 * 1000;
   do {
     Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_SERR;
-    if (AhciReadReg(Offset) != 0) {
-      AhciWriteReg (Offset, AhciReadReg(Offset));
+    if (AhciReadReg(AhciBar, Offset) != 0) {
+      AhciWriteReg (AhciBar, Offset, AhciReadReg(AhciBar, Offset));
     }
     Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_TFD;
 
-    Data = AhciReadReg (Offset) & EFI_AHCI_PORT_TFD_MASK;
+    Data = AhciReadReg (AhciBar, Offset) & EFI_AHCI_PORT_TFD_MASK;
     if (Data == 0) {
       break;
     }
@@ -1252,10 +1318,11 @@ AhciModeInitialize (
 
   Offset = EFI_AHCI_PORT_START + Port * EFI_AHCI_PORT_REG_WIDTH + EFI_AHCI_PORT_SIG;
   Status = AhciWaitMmioSet (
+             AhciBar,
              Offset,
              0x0000FFFF,
              0x00000101,
-             EFI_TIMER_PERIOD_SECONDS(16)
+             160000000
              );
 
   if (EFI_ERROR (Status)) {

@@ -1,7 +1,7 @@
 ## @file
 # generate flash image
 #
-#  Copyright (c) 2007 - 2017, Intel Corporation. All rights reserved.<BR>
+#  Copyright (c) 2007 - 2018, Intel Corporation. All rights reserved.<BR>
 #
 #  This program and the accompanying materials
 #  are licensed and made available under the terms and conditions of the BSD License
@@ -38,8 +38,6 @@ from Common.Misc import DirCache, PathClass
 from Common.Misc import SaveFileOnChange
 from Common.Misc import ClearDuplicatedInf
 from Common.Misc import GuidStructureStringToGuidString
-from Common.Misc import CheckPcdDatum
-from Common.Misc import BuildOptionPcdValueFormat
 from Common.BuildVersion import gBUILD_VERSION
 from Common.MultipleWorkspace import MultipleWorkspace as mws
 import FfsFileStatement
@@ -144,6 +142,7 @@ def main():
         else:
             EdkLogger.error("GenFds", OPTION_MISSING, "Missing active platform")
 
+        GlobalData.BuildOptionPcd     = Options.OptionPcd if Options.OptionPcd else {}
         GenFdsGlobalVariable.ActivePlatform = PathClass(NormPath(ActivePlatform))
 
         if (Options.ConfDirectory):
@@ -164,6 +163,8 @@ def main():
                 # Get standard WORKSPACE/Conf, use the absolute path to the WORKSPACE/Conf
                 ConfDirectoryPath = mws.join(GenFdsGlobalVariable.WorkSpaceDir, 'Conf')
         GenFdsGlobalVariable.ConfDir = ConfDirectoryPath
+        if not GlobalData.gConfDirectory:
+            GlobalData.gConfDirectory = GenFdsGlobalVariable.ConfDir
         BuildConfigurationFile = os.path.normpath(os.path.join(ConfDirectoryPath, "target.txt"))
         if os.path.isfile(BuildConfigurationFile) == True:
             TargetTxt = TargetTxtClassObject.TargetTxtClassObject()
@@ -326,7 +327,6 @@ def main():
                                     FvObj.FvRegionInFD = RegionObj.Size
                                     RegionObj.BlockInfoOfRegion(FdObj.BlockSizeList, FvObj)
 
-        GlobalData.BuildOptionPcd     = Options.OptionPcd if Options.OptionPcd else {}
         """Call GenFds"""
         GenFds.GenFd('', FdfParserObj, BuildWorkSpace, ArchList)
 
@@ -366,53 +366,6 @@ def SingleCheckCallback(option, opt_str, value, parser):
         gParamCheck.append(option)
     else:
         parser.error("Option %s only allows one instance in command line!" % option)
-
-def CheckBuildOptionPcd():
-    for Arch in GenFdsGlobalVariable.ArchList:
-        PkgList  = GenFdsGlobalVariable.WorkSpace.GetPackageList(GenFdsGlobalVariable.ActivePlatform, Arch, GenFdsGlobalVariable.TargetName, GenFdsGlobalVariable.ToolChainTag)
-        for i, pcd in enumerate(GlobalData.BuildOptionPcd):
-            if type(pcd) is tuple:
-                continue
-            (pcdname, pcdvalue) = pcd.split('=')
-            if not pcdvalue:
-                EdkLogger.error('GenFds', OPTION_MISSING, "No Value specified for the PCD %s." % (pcdname))
-            if '.' in pcdname:
-                (TokenSpaceGuidCName, TokenCName) = pcdname.split('.')
-                HasTokenSpace = True
-            else:
-                TokenCName = pcdname
-                TokenSpaceGuidCName = ''
-                HasTokenSpace = False
-            TokenSpaceGuidCNameList = []
-            FoundFlag = False
-            PcdDatumType = ''
-            NewValue = ''
-            for package in PkgList:
-                for key in package.Pcds:
-                    PcdItem = package.Pcds[key]
-                    if HasTokenSpace:
-                        if (PcdItem.TokenCName, PcdItem.TokenSpaceGuidCName) == (TokenCName, TokenSpaceGuidCName):
-                            PcdDatumType = PcdItem.DatumType
-                            NewValue = BuildOptionPcdValueFormat(TokenSpaceGuidCName, TokenCName, PcdDatumType, pcdvalue)
-                            FoundFlag = True
-                    else:
-                        if PcdItem.TokenCName == TokenCName:
-                            if not PcdItem.TokenSpaceGuidCName in TokenSpaceGuidCNameList:
-                                if len (TokenSpaceGuidCNameList) < 1:
-                                    TokenSpaceGuidCNameList.append(PcdItem.TokenSpaceGuidCName)
-                                    PcdDatumType = PcdItem.DatumType
-                                    TokenSpaceGuidCName = PcdItem.TokenSpaceGuidCName
-                                    NewValue = BuildOptionPcdValueFormat(TokenSpaceGuidCName, TokenCName, PcdDatumType, pcdvalue)
-                                    FoundFlag = True
-                                else:
-                                    EdkLogger.error(
-                                            'GenFds',
-                                            PCD_VALIDATION_INFO_ERROR,
-                                            "The Pcd %s is found under multiple different TokenSpaceGuid: %s and %s." % (TokenCName, PcdItem.TokenSpaceGuidCName, TokenSpaceGuidCNameList[0])
-                                            )
-
-            GlobalData.BuildOptionPcd[i] = (TokenSpaceGuidCName, TokenCName, NewValue)
-
 
 ## FindExtendTool()
 #
