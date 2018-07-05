@@ -67,3 +67,16 @@ InstallVirtualAddressChangeHandler (
   // Nothing.
   //
 }
+
+EFI_STATUS
+MarkIoMemoryRangeForRuntimeAccess (
+  EFI_PHYSICAL_ADDRESS                BaseAddress,
+  UINTN                               Length
+  )
+{
+  //
+  // Nothing
+  //
+
+  return EFI_SUCCESS;
+}
