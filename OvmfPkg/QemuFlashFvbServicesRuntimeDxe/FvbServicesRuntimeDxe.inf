@@ -54,6 +54,7 @@
   DevicePathLib
   DxeServicesTableLib
   MemoryAllocationLib
+  MemEncryptSevLib
   PcdLib
   UefiBootServicesTableLib
   UefiDriverEntryPoint
